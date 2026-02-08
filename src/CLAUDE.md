@@ -100,7 +100,7 @@ References `LumiRise.Api` project.
 
 References `LumiRise.Api` project. Uses Testcontainers for spinning up real PostgreSQL and Mosquitto MQTT broker instances during tests.
 
-## Build Commands
+## Dotnet Commands
 
 ```bash
 # Restore dependencies
@@ -118,7 +118,14 @@ dotnet test -c Release -v q --logger "console;verbosity=quiet" "$@"
 # Run specific test project
 dotnet test -c Release -v q --logger "console;verbosity=quiet" LuniRise.Tests
 dotnet test -c Release -v q --logger "console;verbosity=quiet" LuniRise.IntegrationTests
+
+# Search for Nuget packages
+dotnet package search --take 1 --source nuget.org "$@"
 ```
+
+## Conventions
+
+- **Resilience:** Use Polly (`Microsoft.Extensions.Resilience`) for all retry and resilience logic. Do not hand-roll retry loops.
 
 ## Next Steps (Phase 1)
 

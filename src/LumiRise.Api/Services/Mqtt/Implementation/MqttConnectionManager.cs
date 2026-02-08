@@ -5,6 +5,9 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MQTTnet;
+using MQTTnet.Exceptions;
+using Polly;
+using Polly.Retry;
 using System.Collections.Concurrent;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
@@ -12,7 +15,7 @@ using System.Reactive.Subjects;
 namespace LumiRise.Api.Services.Mqtt.Implementation;
 
 /// <summary>
-/// Manages MQTT broker connection with exponential backoff reconnection strategy.
+/// Manages MQTT broker connection with Polly-based exponential backoff reconnection.
 /// Publishes connection state changes and message events as observables.
 /// </summary>
 public class MqttConnectionManager : IHostedService, IMqttConnectionManager
@@ -25,12 +28,14 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
     private readonly ConcurrentQueue<(string Topic, string Payload)> _commandQueue = new();
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
     private readonly CancellationTokenSource _disposalCts = new();
-    private readonly object _backgroundTaskLock = new();
+    private readonly ResiliencePipeline _reconnectionPipeline;
 
     private static readonly TimeSpan DisposalTimeout = TimeSpan.FromSeconds(10);
 
-    private Task? _backgroundTask;
+    private Task? _reconnectionTask;
+    private Task? _queueDrainTask;
     private int _connectionAttempt;
+    private int _queuedCommandCount;
     private bool _isConnected;
     private bool _disposed;
 
@@ -46,6 +51,23 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
 
         var factory = new MqttClientFactory();
         _mqttClient = factory.CreateMqttClient();
+
+        _reconnectionPipeline = new ResiliencePipelineBuilder()
+            .AddRetry(new RetryStrategyOptions
+            {
+                MaxRetryAttempts = _options.MaxReconnectionAttempts,
+                DelayGenerator = args =>
+                {
+                    var delay = TimeSpan.FromMilliseconds(
+                        Math.Min(
+                            _options.ReconnectionDelayMs * Math.Pow(_options.BackoffMultiplier, args.AttemptNumber),
+                            _options.MaxReconnectionDelayMs));
+                    return ValueTask.FromResult<TimeSpan?>(delay);
+                },
+                UseJitter = true,
+                ShouldHandle = new PredicateBuilder().Handle<Exception>()
+            })
+            .Build();
     }
 
     public bool IsConnected => _isConnected;
@@ -68,13 +90,27 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
 
     public async Task ConnectAsync(CancellationToken ct)
     {
+        var connected = await ConnectCoreAsync(ct);
+
+        if (!connected)
+        {
+            StartReconnectionLoop();
+        }
+    }
+
+    /// <summary>
+    /// Attempts a single connection to the MQTT broker.
+    /// Returns true if connected successfully.
+    /// </summary>
+    private async Task<bool> ConnectCoreAsync(CancellationToken ct)
+    {
         await _connectionLock.WaitAsync(ct);
         try
         {
             if (_isConnected)
             {
                 _logger.LogInformation("Already connected to MQTT broker");
-                return;
+                return true;
             }
 
             _connectionAttempt++;
@@ -116,19 +152,23 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
                     _connectionAttempt = 0;
 
                     // Process any queued commands
-                    TrackBackgroundTask(ProcessQueuedCommandsAsync(_disposalCts.Token));
-                }
-                else
-                {
-                    _isConnected = false;
-                    connectionState.LastError = result.ResultCode.ToString();
-                    _logger.LogWarning("Failed to connect to MQTT broker: {ResultCode}",
-                        result.ResultCode);
-                    _connectionStateSubject.OnNext(connectionState);
+                    _queueDrainTask = ProcessQueuedCommandsAsync(_disposalCts.Token);
 
-                    // Schedule reconnection with exponential backoff
-                    TrackBackgroundTask(ScheduleReconnectionAsync(_disposalCts.Token));
+                    return true;
                 }
+
+                _isConnected = false;
+                connectionState.LastError = result.ResultCode.ToString();
+                _logger.LogWarning("Failed to connect to MQTT broker: {ResultCode}",
+                    result.ResultCode);
+                _connectionStateSubject.OnNext(connectionState);
+
+                throw new InvalidOperationException(
+                    $"MQTT connection failed: {result.ResultCode}");
+            }
+            catch (InvalidOperationException)
+            {
+                throw; // Re-throw so Polly sees the failure
             }
             catch (Exception ex)
             {
@@ -137,14 +177,71 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
                 _logger.LogError(ex, "Error connecting to MQTT broker");
                 _connectionStateSubject.OnNext(connectionState);
 
-                // Schedule reconnection with exponential backoff
-                TrackBackgroundTask(ScheduleReconnectionAsync(_disposalCts.Token));
+                throw; // Re-throw so Polly sees the failure
             }
         }
         finally
         {
             _connectionLock.Release();
         }
+    }
+
+    /// <summary>
+    /// Launches a single reconnection loop if one is not already running.
+    /// </summary>
+    private void StartReconnectionLoop()
+    {
+        if (_reconnectionTask is null || _reconnectionTask.IsCompleted)
+        {
+            _reconnectionTask = ConnectWithRetryAsync(_disposalCts.Token);
+        }
+    }
+
+    /// <summary>
+    /// Reconnection loop driven by the Polly resilience pipeline.
+    /// Runs as a single long-lived task until connection succeeds or cancellation is requested.
+    /// </summary>
+    private async Task ConnectWithRetryAsync(CancellationToken ct)
+    {
+        try
+        {
+            await _reconnectionPipeline.ExecuteAsync(async token =>
+            {
+                _logger.LogInformation(
+                    "Attempting reconnection (attempt {Attempt})", _connectionAttempt + 1);
+                await ConnectCoreAsync(token);
+            }, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogDebug("Reconnection loop cancelled");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Reconnection attempts exhausted");
+        }
+    }
+
+    /// <summary>
+    /// Handles detection of a dropped connection. Sets state, publishes disconnected status,
+    /// and starts the reconnection loop.
+    /// </summary>
+    private void HandleConnectionLost(Exception ex)
+    {
+        _logger.LogWarning(ex, "Connection to MQTT broker lost");
+
+        _isConnected = false;
+        _mqttClient.ApplicationMessageReceivedAsync -= HandleMessageReceivedAsync;
+
+        var connectionState = new MqttConnectionState
+        {
+            IsConnected = false,
+            AttemptNumber = _connectionAttempt,
+            LastError = ex.Message
+        };
+        _connectionStateSubject.OnNext(connectionState);
+
+        StartReconnectionLoop();
     }
 
     public async Task DisconnectAsync(CancellationToken ct)
@@ -192,8 +289,7 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
 
         if (!_isConnected)
         {
-            _logger.LogDebug("Not connected, queueing command: {Topic} = {Payload}", topic, payload);
-            _commandQueue.Enqueue((topic, payload));
+            EnqueueCommand(topic, payload);
             throw new InvalidOperationException("MQTT broker is not connected");
         }
 
@@ -209,6 +305,12 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
 
             await _mqttClient.PublishAsync(message, cts.Token);
             _logger.LogDebug("Published to {Topic}: {Payload}", topic, payload);
+        }
+        catch (MqttClientNotConnectedException ex)
+        {
+            HandleConnectionLost(ex);
+            EnqueueCommand(topic, payload);
+            throw;
         }
         catch (OperationCanceledException)
         {
@@ -237,6 +339,11 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
             await _mqttClient.SubscribeAsync(topic, cancellationToken: ct);
             _logger.LogDebug("Subscribed to {Topic}", topic);
         }
+        catch (MqttClientNotConnectedException ex)
+        {
+            HandleConnectionLost(ex);
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error subscribing to {Topic}", topic);
@@ -245,59 +352,48 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
     }
 
     /// <summary>
-    /// Tracks a background task so it can be awaited during disposal.
-    /// Chains tasks sequentially to avoid unbounded growth.
+    /// Enqueues a command if the queue has capacity, otherwise discards it and logs an error.
     /// </summary>
-    private void TrackBackgroundTask(Task task)
+    private void EnqueueCommand(string topic, string payload)
     {
-        lock (_backgroundTaskLock)
+        if (_queuedCommandCount >= _options.CommandQueueDepth)
         {
-            _backgroundTask = _backgroundTask is null
-                ? task
-                : _backgroundTask.ContinueWith(_ => task, TaskScheduler.Default).Unwrap();
+            _logger.LogError(
+                "Command queue full ({QueueDepth}), discarding command: {Topic} = {Payload}",
+                _options.CommandQueueDepth, topic, payload);
+            return;
         }
-    }
 
-    private async Task ScheduleReconnectionAsync(CancellationToken ct)
-    {
-        try
-        {
-            var delayMs = (int)Math.Min(
-                _options.ReconnectionDelayMs * Math.Pow(_options.BackoffMultiplier, _connectionAttempt - 1),
-                _options.MaxReconnectionDelayMs
-            );
-
-            _logger.LogInformation("Scheduling reconnection in {DelayMs}ms (attempt {Attempt})",
-                delayMs, _connectionAttempt);
-
-            await Task.Delay(delayMs, ct);
-            await ConnectAsync(ct);
-        }
-        catch (OperationCanceledException)
-        {
-            _logger.LogDebug("Reconnection scheduling cancelled");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error in reconnection scheduling");
-        }
+        _logger.LogDebug("Queueing command: {Topic} = {Payload}", topic, payload);
+        _commandQueue.Enqueue((topic, payload));
+        Interlocked.Increment(ref _queuedCommandCount);
     }
 
     private async Task ProcessQueuedCommandsAsync(CancellationToken ct)
     {
-        while (!ct.IsCancellationRequested && _commandQueue.TryDequeue(out var command))
+        while (!ct.IsCancellationRequested && _isConnected && _commandQueue.TryDequeue(out var command))
         {
+            Interlocked.Decrement(ref _queuedCommandCount);
             try
             {
                 _logger.LogInformation("Processing queued command: {Topic} = {Payload}",
                     command.Topic, command.Payload);
                 await PublishAsync(command.Topic, command.Payload, ct);
             }
+            catch (InvalidOperationException)
+            {
+                // PublishAsync already re-queued the command when not connected — stop draining
+                break;
+            }
+            catch (MqttClientNotConnectedException)
+            {
+                // Connection lost during publish — command was re-queued by PublishAsync, stop draining
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error processing queued command");
-                // Re-queue on error
-                _commandQueue.Enqueue(command);
+                EnqueueCommand(command.Topic, command.Payload);
                 break;
             }
         }
@@ -319,21 +415,20 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
 
         _disposed = true;
 
-        // Signal all background tasks to stop
+        // Signal reconnection loop to stop
         await _disposalCts.CancelAsync();
 
-        // Wait for tracked background tasks with a timeout
-        Task? pending;
-        lock (_backgroundTaskLock)
-        {
-            pending = _backgroundTask;
-        }
+        // Wait for background tasks with a timeout
+        var pendingTasks = new[] { _reconnectionTask, _queueDrainTask }
+            .Where(t => t is not null && !t.IsCompleted)
+            .Cast<Task>()
+            .ToArray();
 
-        if (pending is not null)
+        if (pendingTasks.Length > 0)
         {
             try
             {
-                await pending.WaitAsync(DisposalTimeout);
+                await Task.WhenAll(pendingTasks).WaitAsync(DisposalTimeout);
             }
             catch (TimeoutException)
             {
