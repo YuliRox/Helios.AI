@@ -25,7 +25,11 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
     private readonly ConcurrentQueue<(string Topic, string Payload)> _commandQueue = new();
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
     private readonly CancellationTokenSource _disposalCts = new();
+    private readonly object _backgroundTaskLock = new();
 
+    private static readonly TimeSpan DisposalTimeout = TimeSpan.FromSeconds(10);
+
+    private Task? _backgroundTask;
     private int _connectionAttempt;
     private bool _isConnected;
     private bool _disposed;
@@ -34,6 +38,9 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
         ILogger<MqttConnectionManager> logger,
         IOptions<MqttOptions> options)
     {
+        ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(options);
+
         _logger = logger;
         _options = options.Value;
 
@@ -109,7 +116,7 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
                     _connectionAttempt = 0;
 
                     // Process any queued commands
-                    _ = ProcessQueuedCommandsAsync(_disposalCts.Token);
+                    TrackBackgroundTask(ProcessQueuedCommandsAsync(_disposalCts.Token));
                 }
                 else
                 {
@@ -120,7 +127,7 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
                     _connectionStateSubject.OnNext(connectionState);
 
                     // Schedule reconnection with exponential backoff
-                    _ = ScheduleReconnectionAsync(_disposalCts.Token);
+                    TrackBackgroundTask(ScheduleReconnectionAsync(_disposalCts.Token));
                 }
             }
             catch (Exception ex)
@@ -131,7 +138,7 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
                 _connectionStateSubject.OnNext(connectionState);
 
                 // Schedule reconnection with exponential backoff
-                _ = ScheduleReconnectionAsync(_disposalCts.Token);
+                TrackBackgroundTask(ScheduleReconnectionAsync(_disposalCts.Token));
             }
         }
         finally
@@ -151,7 +158,9 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
             try
             {
                 _mqttClient.ApplicationMessageReceivedAsync -= HandleMessageReceivedAsync;
-                await _mqttClient.DisconnectAsync(new MqttClientDisconnectOptions(){Reason = MqttClientDisconnectOptionsReason.NormalDisconnection}, cancellationToken: ct);
+                await _mqttClient.DisconnectAsync(
+                    new MqttClientDisconnectOptions { Reason = MqttClientDisconnectOptionsReason.NormalDisconnection },
+                    cancellationToken: ct);
                 _logger.LogInformation("Disconnected from MQTT broker");
             }
             catch (Exception ex)
@@ -178,6 +187,9 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
 
     public async Task PublishAsync(string topic, string payload, CancellationToken ct)
     {
+        ArgumentNullException.ThrowIfNull(topic);
+        ArgumentNullException.ThrowIfNull(payload);
+
         if (!_isConnected)
         {
             _logger.LogDebug("Not connected, queueing command: {Topic} = {Payload}", topic, payload);
@@ -212,6 +224,8 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
 
     public async Task SubscribeAsync(string topic, CancellationToken ct)
     {
+        ArgumentNullException.ThrowIfNull(topic);
+
         if (!_isConnected)
         {
             _logger.LogWarning("Not connected, cannot subscribe to {Topic}", topic);
@@ -227,6 +241,20 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
         {
             _logger.LogError(ex, "Error subscribing to {Topic}", topic);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Tracks a background task so it can be awaited during disposal.
+    /// Chains tasks sequentially to avoid unbounded growth.
+    /// </summary>
+    private void TrackBackgroundTask(Task task)
+    {
+        lock (_backgroundTaskLock)
+        {
+            _backgroundTask = _backgroundTask is null
+                ? task
+                : _backgroundTask.ContinueWith(_ => task, TaskScheduler.Default).Unwrap();
         }
     }
 
@@ -291,15 +319,53 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
 
         _disposed = true;
 
-        _disposalCts.Cancel();
+        // Signal all background tasks to stop
+        await _disposalCts.CancelAsync();
+
+        // Wait for tracked background tasks with a timeout
+        Task? pending;
+        lock (_backgroundTaskLock)
+        {
+            pending = _backgroundTask;
+        }
+
+        if (pending is not null)
+        {
+            try
+            {
+                await pending.WaitAsync(DisposalTimeout);
+            }
+            catch (TimeoutException)
+            {
+                _logger.LogWarning("Background tasks did not complete within {Timeout}", DisposalTimeout);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error awaiting background tasks during disposal");
+            }
+        }
+
+        // Disconnect with timeout
+        try
+        {
+            using var disconnectCts = new CancellationTokenSource(DisposalTimeout);
+            await DisconnectAsync(disconnectCts.Token);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error disconnecting during disposal");
+        }
+
         _disposalCts.Dispose();
+        _mqttClient.Dispose();
 
-        await DisconnectAsync(CancellationToken.None);
+        _connectionStateSubject.OnCompleted();
+        _connectionStateSubject.Dispose();
 
-        _mqttClient?.Dispose();
-        _connectionStateSubject?.Dispose();
-        _messageReceivedSubject?.Dispose();
-        _connectionLock?.Dispose();
+        _messageReceivedSubject.OnCompleted();
+        _messageReceivedSubject.Dispose();
+
+        _connectionLock.Dispose();
 
         GC.SuppressFinalize(this);
     }

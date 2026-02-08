@@ -31,6 +31,10 @@ public class DimmerStateMonitor : IDimmerStateMonitor
         IMqttConnectionManager connectionManager,
         IOptions<MqttOptions> options)
     {
+        ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(connectionManager);
+        ArgumentNullException.ThrowIfNull(options);
+
         _logger = logger;
         _connectionManager = connectionManager;
         _options = options.Value;
@@ -196,7 +200,8 @@ public class DimmerStateMonitor : IDimmerStateMonitor
         _disposalCts.Dispose();
 
         _messageSubscription?.Dispose();
-        _stateChangesSubject?.Dispose();
+        _stateChangesSubject.OnCompleted();
+        _stateChangesSubject.Dispose();
 
         await Task.CompletedTask;
         GC.SuppressFinalize(this);

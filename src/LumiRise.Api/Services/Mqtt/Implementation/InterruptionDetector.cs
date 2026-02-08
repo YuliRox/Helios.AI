@@ -25,6 +25,9 @@ public class InterruptionDetector : IInterruptionDetector
         ILogger<InterruptionDetector> logger,
         IDimmerStateMonitor stateMonitor)
     {
+        ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(stateMonitor);
+
         _logger = logger;
         _stateMonitor = stateMonitor;
 
@@ -131,7 +134,8 @@ public class InterruptionDetector : IInterruptionDetector
     public void Dispose()
     {
         _stateSubscription?.Dispose();
-        _interruptionsSubject?.Dispose();
+        _interruptionsSubject.OnCompleted();
+        _interruptionsSubject.Dispose();
         GC.SuppressFinalize(this);
     }
 }

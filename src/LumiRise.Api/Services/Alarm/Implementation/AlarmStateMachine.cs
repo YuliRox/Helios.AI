@@ -251,6 +251,8 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
     {
         lock (_stateLock)
         {
+            if (_disposed)
+                return;
             _disposed = true;
         }
 
