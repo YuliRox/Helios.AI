@@ -60,6 +60,11 @@ All project documentation is organized in the `docs/` directory:
 - Check [docs/MQTT-Reference.md](docs/MQTT-Reference.md) for MQTT message formats and topic configuration
 - See [docs/Roadmap.md](docs/Roadmap.md) for development phases and milestones
 
+## Rules
+
+- **NEVER use `git push --force`**. This is strictly forbidden, no exceptions.
+- **Destructive operations always require explicit user approval** before execution.
+
 ## Development Context
 
 When working on this project:

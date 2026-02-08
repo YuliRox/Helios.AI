@@ -1,4 +1,6 @@
 using LumiRise.Api.Configuration;
+using LumiRise.Api.Services.Alarm.Implementation;
+using LumiRise.Api.Services.Alarm.Interfaces;
 using LumiRise.Api.Services.Mqtt.Implementation;
 using LumiRise.Api.Services.Mqtt.Interfaces;
 
@@ -17,6 +19,9 @@ builder.Services.AddSingleton<IMqttConnectionManager, MqttConnectionManager>();
 builder.Services.AddSingleton<IDimmerStateMonitor, DimmerStateMonitor>();
 builder.Services.AddSingleton<IInterruptionDetector, InterruptionDetector>();
 builder.Services.AddScoped<IDimmerCommandPublisher, DimmerCommandPublisher>();
+
+// Register Alarm services
+builder.Services.AddScoped<IAlarmStateMachineFactory, AlarmStateMachineFactory>();
 
 // Register MqttConnectionManager as hosted service
 builder.Services.AddHostedService(sp =>

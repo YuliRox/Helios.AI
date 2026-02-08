@@ -1,9 +1,9 @@
 # Development Roadmap
 
 ## Phase 0: Setup
-- [ ] Create a bash script containing all cli commands to scaffold the structure for the backend projekt
-- [ ] Verify Setup Script with User
-- [ ] Execute setup script
+- [x] Create a bash script containing all cli commands to scaffold the structure for the backend projekt
+- [x] Verify Setup Script with User
+- [x] Execute setup script
 
 ## Phase 1: MVP (Backend Foundation)
 - [ ] Multi-alarm CRUD API
