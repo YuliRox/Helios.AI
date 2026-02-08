@@ -1,3 +1,5 @@
+using LumiRise.Api.Extensions;
+
 namespace LumiRise.Api.Services.Alarm.Models;
 
 /// <summary>
@@ -53,10 +55,19 @@ public class AlarmDefinition
         set => _targetBrightnessPercent = Math.Clamp(value, 0, 100);
     }
 
+    private static readonly TimeSpan MinRampDuration = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan MaxRampDuration = TimeSpan.FromDays(1);
+    private TimeSpan _rampDuration = TimeSpan.FromMinutes(30);
+
     /// <summary>
     /// Duration of the brightness ramp (default: 30 minutes).
+    /// Clamped to 1 second – 1 day.
     /// </summary>
-    public TimeSpan RampDuration { get; set; } = TimeSpan.FromMinutes(30);
+    public TimeSpan RampDuration
+    {
+        get => _rampDuration;
+        set => _rampDuration = value.Clamp(MinRampDuration, MaxRampDuration);
+    }
 
     /// <summary>
     /// Timezone for evaluating alarm trigger time.
