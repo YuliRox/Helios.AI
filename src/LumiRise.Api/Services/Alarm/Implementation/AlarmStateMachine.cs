@@ -254,6 +254,7 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
             _disposed = true;
         }
 
+        _stateTransitions.OnCompleted();
         _stateTransitions.Dispose();
         GC.SuppressFinalize(this);
     }
