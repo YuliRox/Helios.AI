@@ -1,0 +1,34 @@
+{
+  "skills": [
+    {
+      "name": "testing-backend",
+      "description": "Execute backend tests with minimal verbosity, outputting only errors",
+      "command": "./.claude/skills/testing-backend.sh",
+      "args": [],
+      "cwd": ".",
+      "output": "errors_only",
+      "category": "testing",
+      "tags": ["test", "backend", "dotnet"],
+      "help": "Runs `dotnet test` for the LumiRise backend with minimal verbosity. Only errors are displayed. Use this skill to validate backend functionality.",
+      "examples": [
+        "testing-backend",
+        "testing-backend --filter NameFilter=SomeTest"
+      ]
+    },
+    {
+      "name": "building-backend",
+      "description": "Execute backend build with minimal verbosity, outputting only errors",
+      "command": "./.claude/skills/building-backend.sh",
+      "args": [],
+      "cwd": ".",
+      "output": "errors_only",
+      "category": "building",
+      "tags": ["build", "backend", "dotnet"],
+      "help": "Runs `dotnet build` for the LumiRise backend with minimal verbosity. Only errors are displayed. Use this skill to compile the backend project.",
+      "examples": [
+        "building-backend",
+        "building-backend --configuration Debug"
+      ]
+    }
+  ]
+}
