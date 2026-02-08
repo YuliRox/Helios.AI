@@ -151,11 +151,7 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
                     // Reset attempt counter on successful connection
                     _connectionAttempt = 0;
 
-                    // Await previous drain (if any) before starting a new one
-                    if (_queueDrainTask is { IsCompleted: false })
-                        await _queueDrainTask;
-
-                    // Process any queued commands
+                    // Process any queued commands (fire-and-forget; tracked via _queueDrainTask for disposal)
                     _queueDrainTask = ProcessQueuedCommandsAsync(_disposalCts.Token);
 
                     return true;
@@ -377,23 +373,26 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
     /// </summary>
     private void EnqueueCommand(string topic, string payload)
     {
-        var newCount = Interlocked.Increment(ref _queuedCommandCount);
-        if (newCount > _options.CommandQueueDepth)
+        // Check capacity before enqueuing (slight over-admit is acceptable
+        // under contention; the queue depth is a soft limit)
+        if (Volatile.Read(ref _queuedCommandCount) >= _options.CommandQueueDepth)
         {
-            Interlocked.Decrement(ref _queuedCommandCount);
             _logger.LogError(
                 "Command queue full ({QueueDepth}), discarding command: {Topic} = {Payload}",
                 _options.CommandQueueDepth, topic, payload);
             return;
         }
 
-        _logger.LogDebug("Queueing command: {Topic} = {Payload}", topic, payload);
+        // Enqueue first so the item is dequeue-able before the drain loop
+        // can observe the incremented count — prevents count underflow.
         _commandQueue.Enqueue((topic, payload));
+        Interlocked.Increment(ref _queuedCommandCount);
+        _logger.LogDebug("Queued command: {Topic} = {Payload}", topic, payload);
     }
 
     private async Task ProcessQueuedCommandsAsync(CancellationToken ct)
     {
-        while (!ct.IsCancellationRequested && _isConnected && _commandQueue.TryDequeue(out var command))
+        while (!ct.IsCancellationRequested && Volatile.Read(ref _isConnected) && _commandQueue.TryDequeue(out var command))
         {
             Interlocked.Decrement(ref _queuedCommandCount);
             try
