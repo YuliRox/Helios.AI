@@ -59,6 +59,7 @@ All project documentation is organized in the `docs/` directory:
 - Refer to [docs/Architecture.md](docs/Architecture.md) for implementation details
 - Check [docs/MQTT-Reference.md](docs/MQTT-Reference.md) for MQTT message formats and topic configuration
 - See [docs/Roadmap.md](docs/Roadmap.md) for development phases and milestones
+- See [src/CLAUDE.md](src/CLAUDE.md) for backend specific instructions and project layout
 
 ## Rules
 
