@@ -4,7 +4,6 @@ using LumiRise.Api.Services.Mqtt.Models;
 using Microsoft.Extensions.Logging;
 using Testcontainers.Mosquitto;
 using Testcontainers.Xunit;
-using Xunit.Abstractions;
 
 namespace LumiRise.IntegrationTests.Services.Mqtt;
 
@@ -61,7 +60,7 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
         var manager = new MqttConnectionManager(CreateTestLogger<MqttConnectionManager>(),
             Microsoft.Extensions.Options.Options.Create(options));
 
-        await manager.ConnectAsync(CancellationToken.None);
+        await manager.ConnectAsync(TestContext.Current.CancellationToken);
 
         Assert.True(manager.IsConnected);
 
@@ -78,16 +77,16 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
         var messages = new List<(string Topic, string Payload)>();
         var subscription = manager.MessageReceived.Subscribe(msg => messages.Add(msg));
 
-        await manager.ConnectAsync(CancellationToken.None);
-        await manager.SubscribeAsync("test/topic", CancellationToken.None);
+        await manager.ConnectAsync(TestContext.Current.CancellationToken);
+        await manager.SubscribeAsync("test/topic", TestContext.Current.CancellationToken);
 
         // Give broker time to process subscription
-        await Task.Delay(100);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
 
-        await manager.PublishAsync("test/topic", "test-payload", CancellationToken.None);
+        await manager.PublishAsync("test/topic", "test-payload", TestContext.Current.CancellationToken);
 
         // Wait for message to be received
-        await Task.Delay(200);
+        await Task.Delay(200, TestContext.Current.CancellationToken);
 
         subscription.Dispose();
         await manager.DisposeAsync();
@@ -113,17 +112,17 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
         var states = new List<DimmerState>();
         var subscription = monitor.StateChanges.Subscribe(state => states.Add(state));
 
-        await connectionManager.ConnectAsync(CancellationToken.None);
-        await monitor.StartMonitoringAsync(CancellationToken.None);
+        await connectionManager.ConnectAsync(TestContext.Current.CancellationToken);
+        await monitor.StartMonitoringAsync(TestContext.Current.CancellationToken);
 
         // Give broker time to process subscriptions
-        await Task.Delay(100);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
 
         // Publish power message
-        await connectionManager.PublishAsync(options.Topics.DimmerOnOffStatus, "ON", CancellationToken.None);
+        await connectionManager.PublishAsync(options.Topics.DimmerOnOffStatus, "ON", TestContext.Current.CancellationToken);
 
         // Wait for message to be processed
-        await Task.Delay(200);
+        await Task.Delay(200, TestContext.Current.CancellationToken);
 
         subscription.Dispose();
         await monitor.DisposeAsync();
@@ -141,10 +140,10 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
         // Start mock dimmer device with its own independent connection
         await using var mockDimmer = new MockDimmerDevice(
             options.Server, options.Port, options.Topics, _testOutput);
-        await mockDimmer.StartAsync(CancellationToken.None);
+        await mockDimmer.StartAsync(TestContext.Current.CancellationToken);
 
         // Give mock device time to fully subscribe
-        await Task.Delay(100);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
 
         // Now connect the LumiRise connection manager
         var connectionManager = new MqttConnectionManager(CreateTestLogger<MqttConnectionManager>(),
@@ -160,7 +159,7 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
                 RampStepDelayMs = 50
             }));
 
-        await connectionManager.ConnectAsync(CancellationToken.None);
+        await connectionManager.ConnectAsync(TestContext.Current.CancellationToken);
 
         var progress = new Progress<int>();
         var progressValues = new List<int>();
@@ -168,10 +167,10 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
 
         // Ramp brightness from 20% to 80%
         await publisher.RampBrightnessAsync(20, 80, TimeSpan.FromMilliseconds(200),
-            progress, CancellationToken.None);
+            progress, TestContext.Current.CancellationToken);
 
         // Give mock device time to process final response
-        await Task.Delay(100);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
 
         await connectionManager.DisposeAsync();
 
@@ -187,10 +186,10 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
         // Start mock dimmer device with its own independent connection
         await using var mockDimmer = new MockDimmerDevice(
             options.Server, options.Port, options.Topics, _testOutput);
-        await mockDimmer.StartAsync(CancellationToken.None);
+        await mockDimmer.StartAsync(TestContext.Current.CancellationToken);
 
         // Give mock device time to fully subscribe
-        await Task.Delay(100);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
 
         var connectionManager = new MqttConnectionManager(CreateTestLogger<MqttConnectionManager>(),
             Microsoft.Extensions.Options.Options.Create(options));
@@ -203,21 +202,21 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
         var messages = new List<(string Topic, string Payload)>();
         var subscription = connectionManager.MessageReceived.Subscribe(msg => messages.Add(msg));
 
-        await connectionManager.ConnectAsync(CancellationToken.None);
+        await connectionManager.ConnectAsync(TestContext.Current.CancellationToken);
 
         // Subscribe to status topics to receive mock device responses
-        await connectionManager.SubscribeAsync(options.Topics.DimmerOnOffStatus, CancellationToken.None);
-        await connectionManager.SubscribeAsync(options.Topics.DimmerPercentageStatus, CancellationToken.None);
+        await connectionManager.SubscribeAsync(options.Topics.DimmerOnOffStatus, TestContext.Current.CancellationToken);
+        await connectionManager.SubscribeAsync(options.Topics.DimmerPercentageStatus, TestContext.Current.CancellationToken);
 
         // Start multiple concurrent commands
-        var task1 = publisher.TurnOnAsync(CancellationToken.None);
-        var task2 = publisher.SetBrightnessAsync(50, CancellationToken.None);
-        var task3 = publisher.TurnOffAsync(CancellationToken.None);
+        var task1 = publisher.TurnOnAsync(TestContext.Current.CancellationToken);
+        var task2 = publisher.SetBrightnessAsync(50, TestContext.Current.CancellationToken);
+        var task3 = publisher.TurnOffAsync(TestContext.Current.CancellationToken);
 
         await Task.WhenAll(task1, task2, task3);
 
         // Give mock device time to process and respond
-        await Task.Delay(200);
+        await Task.Delay(200, TestContext.Current.CancellationToken);
 
         subscription.Dispose();
         await connectionManager.DisposeAsync();
@@ -234,10 +233,10 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
         // Start mock dimmer device with its own independent connection
         await using var mockDimmer = new MockDimmerDevice(
             options.Server, options.Port, options.Topics, _testOutput);
-        await mockDimmer.StartAsync(CancellationToken.None);
+        await mockDimmer.StartAsync(TestContext.Current.CancellationToken);
 
         // Give mock device time to fully subscribe
-        await Task.Delay(100);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
 
         // Set up LumiRise connection and services
         var connectionManager = new MqttConnectionManager(CreateTestLogger<MqttConnectionManager>(),
@@ -258,12 +257,12 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
         var interruptions = new List<InterruptionEvent>();
         var subscription = detector.Interruptions.Subscribe(evt => interruptions.Add(evt));
 
-        await connectionManager.ConnectAsync(CancellationToken.None);
-        await monitor.StartMonitoringAsync(CancellationToken.None);
+        await connectionManager.ConnectAsync(TestContext.Current.CancellationToken);
+        await monitor.StartMonitoringAsync(TestContext.Current.CancellationToken);
 
         // Set brightness to 50% via command (mock device will respond)
-        await publisher.SetBrightnessAsync(50, CancellationToken.None);
-        await Task.Delay(100);
+        await publisher.SetBrightnessAsync(50, TestContext.Current.CancellationToken);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
 
         // Now enable interruption detection with expected state
         detector.SetExpectedState(new DimmerState { IsOn = true, BrightnessPercent = 50 });
@@ -273,7 +272,7 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
         await mockDimmer.SimulateManualPowerOffAsync();
 
         // Wait for interruption to be detected
-        await Task.Delay(200);
+        await Task.Delay(200, TestContext.Current.CancellationToken);
 
         subscription.Dispose();
         await monitor.DisposeAsync();
@@ -291,10 +290,10 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
         // Start mock dimmer device with its own independent connection
         await using var mockDimmer = new MockDimmerDevice(
             options.Server, options.Port, options.Topics, _testOutput);
-        await mockDimmer.StartAsync(CancellationToken.None);
+        await mockDimmer.StartAsync(TestContext.Current.CancellationToken);
 
         // Give mock device time to fully subscribe
-        await Task.Delay(100);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
 
         // Set up LumiRise connection and services
         var connectionManager = new MqttConnectionManager(CreateTestLogger<MqttConnectionManager>(),
@@ -315,12 +314,12 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
         var interruptions = new List<InterruptionEvent>();
         var subscription = detector.Interruptions.Subscribe(evt => interruptions.Add(evt));
 
-        await connectionManager.ConnectAsync(CancellationToken.None);
-        await monitor.StartMonitoringAsync(CancellationToken.None);
+        await connectionManager.ConnectAsync(TestContext.Current.CancellationToken);
+        await monitor.StartMonitoringAsync(TestContext.Current.CancellationToken);
 
         // Set brightness to 50% via command (mock device will respond)
-        await publisher.SetBrightnessAsync(50, CancellationToken.None);
-        await Task.Delay(100);
+        await publisher.SetBrightnessAsync(50, TestContext.Current.CancellationToken);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
 
         // Now enable interruption detection with expected state
         detector.SetExpectedState(new DimmerState { IsOn = true, BrightnessPercent = 50 });
@@ -330,7 +329,7 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
         await mockDimmer.SimulateManualBrightnessChangeAsync(80);
 
         // Wait for interruption to be detected
-        await Task.Delay(200);
+        await Task.Delay(200, TestContext.Current.CancellationToken);
 
         subscription.Dispose();
         await monitor.DisposeAsync();
@@ -348,10 +347,10 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
         // Start mock dimmer device with its own independent connection
         await using var mockDimmer = new MockDimmerDevice(
             options.Server, options.Port, options.Topics, _testOutput);
-        await mockDimmer.StartAsync(CancellationToken.None);
+        await mockDimmer.StartAsync(TestContext.Current.CancellationToken);
 
         // Give mock device time to fully subscribe
-        await Task.Delay(100);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
 
         // Set up LumiRise connection and services
         var connectionManager = new MqttConnectionManager(CreateTestLogger<MqttConnectionManager>(),
@@ -374,8 +373,8 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
 
         var detector = new InterruptionDetector(CreateTestLogger<InterruptionDetector>(), monitor);
 
-        await connectionManager.ConnectAsync(CancellationToken.None);
-        await monitor.StartMonitoringAsync(CancellationToken.None);
+        await connectionManager.ConnectAsync(TestContext.Current.CancellationToken);
+        await monitor.StartMonitoringAsync(TestContext.Current.CancellationToken);
 
         // Track progress and interruptions
         var progressValues = new List<int>();
@@ -412,7 +411,7 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
             progress, rampCts.Token);
 
         // Wait for ramp to start and reach ~40-50%
-        await Task.Delay(500);
+        await Task.Delay(500, TestContext.Current.CancellationToken);
 
         // Simulate user manually turning off the light mid-ramp
         _testOutput.WriteLine("[Test] Simulating manual power off during ramp");
@@ -430,7 +429,7 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
         }
 
         // Give time for all messages to be processed
-        await Task.Delay(100);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
 
         cancelOnInterruptSubscription.Dispose();
         interruptionSubscription.Dispose();

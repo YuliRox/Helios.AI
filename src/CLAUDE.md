@@ -104,20 +104,20 @@ References `LumiRise.Api` project. Uses Testcontainers for spinning up real Post
 
 ```bash
 # Restore dependencies
-dotnet restore
+dotnet restore -v q --nologo
 
 # Build solution
-dotnet build
+dotnet build -c Release -v q --nologo "$@"
 
 # Run API project
-dotnet run --project LumiRise.Api
+dotnet run -v q --project LumiRise.Api
 
 # Run tests
-dotnet test
+dotnet test -c Release -v q --logger "console;verbosity=quiet" "$@"
 
 # Run specific test project
-dotnet test LumiRise.Tests
-dotnet test LumiRise.IntegrationTests
+dotnet test -c Release -v q --logger "console;verbosity=quiet" LuniRise.Tests
+dotnet test -c Release -v q --logger "console;verbosity=quiet" LuniRise.IntegrationTests
 ```
 
 ## Next Steps (Phase 1)

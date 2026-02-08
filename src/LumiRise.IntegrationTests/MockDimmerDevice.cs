@@ -1,6 +1,5 @@
 using LumiRise.Api.Configuration;
 using MQTTnet;
-using Xunit.Abstractions;
 
 namespace LumiRise.IntegrationTests;
 
