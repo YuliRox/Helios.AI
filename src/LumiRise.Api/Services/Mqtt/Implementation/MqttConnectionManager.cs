@@ -151,6 +151,10 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
                     // Reset attempt counter on successful connection
                     _connectionAttempt = 0;
 
+                    // Await previous drain (if any) before starting a new one
+                    if (_queueDrainTask is { IsCompleted: false })
+                        await _queueDrainTask;
+
                     // Process any queued commands
                     _queueDrainTask = ProcessQueuedCommandsAsync(_disposalCts.Token);
 
@@ -228,18 +232,35 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
     /// </summary>
     private void HandleConnectionLost(Exception ex)
     {
-        _logger.LogWarning(ex, "Connection to MQTT broker lost");
-
-        _isConnected = false;
-        _mqttClient.ApplicationMessageReceivedAsync -= HandleMessageReceivedAsync;
-
-        var connectionState = new MqttConnectionState
+        if (!_connectionLock.Wait(0))
         {
-            IsConnected = false,
-            AttemptNumber = _connectionAttempt,
-            LastError = ex.Message
-        };
-        _connectionStateSubject.OnNext(connectionState);
+            // A connect/disconnect is already in progress — it will handle state.
+            _logger.LogDebug(ex, "Connection lost detected, but another operation holds the lock");
+            return;
+        }
+
+        try
+        {
+            if (!_isConnected)
+                return; // Already handled.
+
+            _logger.LogWarning(ex, "Connection to MQTT broker lost");
+
+            _isConnected = false;
+            _mqttClient.ApplicationMessageReceivedAsync -= HandleMessageReceivedAsync;
+
+            var connectionState = new MqttConnectionState
+            {
+                IsConnected = false,
+                AttemptNumber = _connectionAttempt,
+                LastError = ex.Message
+            };
+            _connectionStateSubject.OnNext(connectionState);
+        }
+        finally
+        {
+            _connectionLock.Release();
+        }
 
         StartReconnectionLoop();
     }
@@ -356,8 +377,10 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
     /// </summary>
     private void EnqueueCommand(string topic, string payload)
     {
-        if (_queuedCommandCount >= _options.CommandQueueDepth)
+        var newCount = Interlocked.Increment(ref _queuedCommandCount);
+        if (newCount > _options.CommandQueueDepth)
         {
+            Interlocked.Decrement(ref _queuedCommandCount);
             _logger.LogError(
                 "Command queue full ({QueueDepth}), discarding command: {Topic} = {Payload}",
                 _options.CommandQueueDepth, topic, payload);
@@ -366,7 +389,6 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
 
         _logger.LogDebug("Queueing command: {Topic} = {Payload}", topic, payload);
         _commandQueue.Enqueue((topic, payload));
-        Interlocked.Increment(ref _queuedCommandCount);
     }
 
     private async Task ProcessQueuedCommandsAsync(CancellationToken ct)
