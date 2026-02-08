@@ -20,6 +20,7 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
     private readonly ILogger<AlarmStateMachine> _logger;
     private readonly Subject<AlarmStateTransition> _stateTransitions = new();
     private readonly object _stateLock = new();
+    private bool _disposed;
 
     private static readonly Dictionary<(AlarmState State, AlarmTrigger Trigger), AlarmState> TransitionTable = new()
     {
@@ -96,6 +97,8 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
     /// </summary>
     private AlarmState FireCore(AlarmTrigger trigger, string? message = null)
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
         var key = (CurrentState, trigger);
         if (!TransitionTable.TryGetValue(key, out var newState))
         {
@@ -153,11 +156,12 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
             Definition.TargetBrightnessPercent,
             Definition.RampDuration);
 
-        using var interruptionSubscription = _interruptionDetector.Interruptions
-            .Subscribe(OnInterruptionDetected);
-
+        IDisposable? interruptionSubscription = null;
         try
         {
+            interruptionSubscription = _interruptionDetector.Interruptions
+                .Subscribe(OnInterruptionDetected);
+
             // Enable interruption detection during execution
             _interruptionDetector.SetExpectedState(new DimmerState
             {
@@ -222,6 +226,9 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
         }
         finally
         {
+            // Unsubscribe first — stops callbacks from arriving before we tear down detection.
+            // This eliminates the window where events could queue between disabling and disposal.
+            interruptionSubscription?.Dispose();
             _interruptionDetector.DisableDetection();
             _interruptionDetector.ClearExpectedState();
         }
@@ -242,6 +249,11 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
 
     public void Dispose()
     {
+        lock (_stateLock)
+        {
+            _disposed = true;
+        }
+
         _stateTransitions.Dispose();
         GC.SuppressFinalize(this);
     }

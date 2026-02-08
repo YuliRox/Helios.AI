@@ -30,15 +30,28 @@ public class AlarmDefinition
     /// </summary>
     public DayOfWeek[] DaysOfWeek { get; set; } = [];
 
+    private int _startBrightnessPercent = 20;
+    private int _targetBrightnessPercent = 100;
+
     /// <summary>
     /// Starting brightness percentage for the ramp (default: 20%).
+    /// Clamped to 0–100.
     /// </summary>
-    public int StartBrightnessPercent { get; set; } = 20;
+    public int StartBrightnessPercent
+    {
+        get => _startBrightnessPercent;
+        set => _startBrightnessPercent = Math.Clamp(value, 0, 100);
+    }
 
     /// <summary>
     /// Target brightness percentage at end of ramp (default: 100%).
+    /// Clamped to 0–100.
     /// </summary>
-    public int TargetBrightnessPercent { get; set; } = 100;
+    public int TargetBrightnessPercent
+    {
+        get => _targetBrightnessPercent;
+        set => _targetBrightnessPercent = Math.Clamp(value, 0, 100);
+    }
 
     /// <summary>
     /// Duration of the brightness ramp (default: 30 minutes).

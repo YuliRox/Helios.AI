@@ -25,6 +25,8 @@
   - Each alarm has: Name, enabled/disabled status, time (HH:MM), days of week, brightness curve
   - Alarms execute in isolation; no dependencies between alarms
   - Manual operation of dimmer during one alarm does not affect others
+  - Alarms can only happen sequentially - executing Alarms at the same time on the same device does not make sense
+  - Alarms are checked for overlap during scheduling. The time needed by the brightness ramp is added to an existing alarms trigger time, this is known as the alarm execution time. Other alarms may not be scheduled during any alarms execution time.
 
 - **Alarm Lifecycle:**
   ```
