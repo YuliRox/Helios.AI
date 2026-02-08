@@ -13,13 +13,14 @@ namespace LumiRise.Tests.Services.Mqtt;
 
 public class DimmerStateMonitorTests
 {
-    private readonly Mock<ILogger<DimmerStateMonitor>> _loggerMock = new();
+    private readonly ILogger<DimmerStateMonitor> _logger;
     private readonly Mock<IMqttConnectionManager> _connectionManagerMock = new();
     private readonly MqttOptions _options = new();
     private readonly Subject<(string Topic, string Payload)> _messageSubject = new();
 
-    public DimmerStateMonitorTests()
+    public DimmerStateMonitorTests(ITestOutputHelper testOutput)
     {
+        _logger = new ErrorFailingLogger<DimmerStateMonitor>(testOutput.WriteLine);
         _connectionManagerMock
             .Setup(x => x.MessageReceived)
             .Returns(_messageSubject.AsObservable());
@@ -29,7 +30,7 @@ public class DimmerStateMonitorTests
     public async Task StartMonitoringAsync_SubscribesToBothTopics()
     {
         var monitor = new DimmerStateMonitor(
-            _loggerMock.Object,
+            _logger,
             _connectionManagerMock.Object,
             Options.Create(_options));
 
@@ -48,7 +49,7 @@ public class DimmerStateMonitorTests
     public async Task StateChanges_PublishesDimmerStateOnPowerMessage()
     {
         var monitor = new DimmerStateMonitor(
-            _loggerMock.Object,
+            _logger,
             _connectionManagerMock.Object,
             Options.Create(_options));
 
@@ -66,7 +67,7 @@ public class DimmerStateMonitorTests
     public async Task StateChanges_HandlesJsonResultMessage()
     {
         var monitor = new DimmerStateMonitor(
-            _loggerMock.Object,
+            _logger,
             _connectionManagerMock.Object,
             Options.Create(_options));
 
@@ -85,7 +86,7 @@ public class DimmerStateMonitorTests
     public async Task CurrentState_ReturnsCachedState()
     {
         var monitor = new DimmerStateMonitor(
-            _loggerMock.Object,
+            _logger,
             _connectionManagerMock.Object,
             Options.Create(_options));
 
@@ -102,7 +103,7 @@ public class DimmerStateMonitorTests
     public async Task CurrentState_IsNullInitially()
     {
         var monitor = new DimmerStateMonitor(
-            _loggerMock.Object,
+            _logger,
             _connectionManagerMock.Object,
             Options.Create(_options));
 
@@ -115,7 +116,7 @@ public class DimmerStateMonitorTests
     public async Task StateChanges_OnlyPublishesOnActualChange()
     {
         var monitor = new DimmerStateMonitor(
-            _loggerMock.Object,
+            _logger,
             _connectionManagerMock.Object,
             Options.Create(_options));
 
@@ -133,7 +134,7 @@ public class DimmerStateMonitorTests
     public async Task ParsePowerMessage_HandlesMalformedJson()
     {
         var monitor = new DimmerStateMonitor(
-            _loggerMock.Object,
+            _logger,
             _connectionManagerMock.Object,
             Options.Create(_options));
 
@@ -151,7 +152,7 @@ public class DimmerStateMonitorTests
     public async Task StopMonitoringAsync_StopsListeningToMessages()
     {
         var monitor = new DimmerStateMonitor(
-            _loggerMock.Object,
+            _logger,
             _connectionManagerMock.Object,
             Options.Create(_options));
 

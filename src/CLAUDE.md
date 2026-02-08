@@ -116,8 +116,10 @@ dotnet run -v q --project LumiRise.Api
 dotnet test -c Release -v q --logger "console;verbosity=quiet" "$@"
 
 # Run specific test project
-dotnet test -c Release -v q --logger "console;verbosity=quiet" LuniRise.Tests
-dotnet test -c Release -v q --logger "console;verbosity=quiet" LuniRise.IntegrationTests
+dotnet test -c Release -v q --logger "console;verbosity=quiet" LumiRise.Tests
+dotnet test -c Release -v q --logger "console;verbosity=quiet" LumiRise.IntegrationTests
+dotnet run --project LumiRise.Tests -c Release -v q
+dotnet run --project LumiRise.IntegrationTests -c Release -v q
 
 # Search for Nuget packages
 dotnet package search --take 1 --source nuget.org "$@"

@@ -36,6 +36,6 @@ public class AlarmStateTransition
     public string? Message { get; init; }
 
     public override string ToString() =>
-        $"[{AlarmId:N8}] {PreviousState} --[{Trigger}]--> {NewState}" +
+        $"[{AlarmId.ToString("N")[..8]}] {PreviousState} --[{Trigger}]--> {NewState}" +
         (Message is not null ? $" ({Message})" : "");
 }

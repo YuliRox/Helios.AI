@@ -13,7 +13,7 @@ public class AlarmStateMachineTests : IDisposable
 {
     private readonly Mock<IDimmerCommandPublisher> _publisher = new();
     private readonly Mock<IInterruptionDetector> _detector = new();
-    private readonly Mock<ILogger<AlarmStateMachine>> _logger = new();
+    private readonly ErrorFailingLogger<AlarmStateMachine> _logger;
     private readonly Subject<InterruptionEvent> _interruptionsSubject = new();
     private readonly AlarmDefinition _definition = new()
     {
@@ -25,10 +25,11 @@ public class AlarmStateMachineTests : IDisposable
 
     private readonly AlarmStateMachine _sut;
 
-    public AlarmStateMachineTests()
+    public AlarmStateMachineTests(ITestOutputHelper testOutput)
     {
+        _logger = new ErrorFailingLogger<AlarmStateMachine>(testOutput.WriteLine);
         _detector.Setup(d => d.Interruptions).Returns(_interruptionsSubject);
-        _sut = new AlarmStateMachine(_definition, _publisher.Object, _detector.Object, _logger.Object);
+        _sut = new AlarmStateMachine(_definition, _publisher.Object, _detector.Object, _logger);
     }
 
     public void Dispose() => _sut.Dispose();
@@ -227,7 +228,8 @@ public class AlarmStateMachineTests : IDisposable
             .ThrowsAsync(new InvalidOperationException("MQTT disconnected"));
 
         TransitionTo(AlarmState.Running);
-        await _sut.ExecuteAsync(TestContext.Current.CancellationToken);
+        using (_logger.AllowErrors())
+            await _sut.ExecuteAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(AlarmState.Failed, _sut.CurrentState);
     }
@@ -266,7 +268,8 @@ public class AlarmStateMachineTests : IDisposable
             .ThrowsAsync(new Exception("boom"));
 
         TransitionTo(AlarmState.Running);
-        await _sut.ExecuteAsync(TestContext.Current.CancellationToken);
+        using (_logger.AllowErrors())
+            await _sut.ExecuteAsync(TestContext.Current.CancellationToken);
 
         _detector.Verify(d => d.DisableDetection(), Times.Once);
         _detector.Verify(d => d.ClearExpectedState(), Times.Once);

@@ -12,9 +12,9 @@ namespace LumiRise.Tests.Services.Mqtt;
 /// Unit tests for DimmerCommandPublisher.
 /// Focus on command structure validation and parameter validation.
 /// </summary>
-public class DimmerCommandPublisherTests
+public class DimmerCommandPublisherTests(ITestOutputHelper testOutput)
 {
-    private readonly Mock<ILogger<DimmerCommandPublisher>> _loggerMock = new();
+    private readonly ILogger<DimmerCommandPublisher> _logger = new ErrorFailingLogger<DimmerCommandPublisher>(testOutput.WriteLine);
     private readonly Mock<IMqttConnectionManager> _connectionManagerMock = new();
     private readonly MqttOptions _options = new();
 
@@ -22,7 +22,7 @@ public class DimmerCommandPublisherTests
     public void Publisher_CanBeInstantiated()
     {
         var publisher = new DimmerCommandPublisher(
-            _loggerMock.Object,
+            _logger,
             _connectionManagerMock.Object,
             Options.Create(_options));
 
@@ -33,7 +33,7 @@ public class DimmerCommandPublisherTests
     public async Task SetBrightnessAsync_WithInvalidPercentageOver100_ThrowsArgumentException()
     {
         var publisher = new DimmerCommandPublisher(
-            _loggerMock.Object,
+            _logger,
             _connectionManagerMock.Object,
             Options.Create(_options));
 
@@ -45,7 +45,7 @@ public class DimmerCommandPublisherTests
     public async Task SetBrightnessAsync_WithNegativePercentage_ThrowsArgumentException()
     {
         var publisher = new DimmerCommandPublisher(
-            _loggerMock.Object,
+            _logger,
             _connectionManagerMock.Object,
             Options.Create(_options));
 
@@ -57,7 +57,7 @@ public class DimmerCommandPublisherTests
     public async Task RampBrightnessAsync_WithInvalidStart_ThrowsArgumentException()
     {
         var publisher = new DimmerCommandPublisher(
-            _loggerMock.Object,
+            _logger,
             _connectionManagerMock.Object,
             Options.Create(_options));
 
@@ -70,7 +70,7 @@ public class DimmerCommandPublisherTests
     public async Task RampBrightnessAsync_WithInvalidTarget_ThrowsArgumentException()
     {
         var publisher = new DimmerCommandPublisher(
-            _loggerMock.Object,
+            _logger,
             _connectionManagerMock.Object,
             Options.Create(_options));
 
