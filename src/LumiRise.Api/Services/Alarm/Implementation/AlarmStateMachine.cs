@@ -58,30 +58,7 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
     {
         lock (_stateLock)
         {
-            var key = (CurrentState, trigger);
-            if (!TransitionTable.TryGetValue(key, out var newState))
-            {
-                throw new InvalidOperationException(
-                    $"Cannot fire trigger '{trigger}' from state '{CurrentState}' " +
-                    $"for alarm '{Definition.Name}' ({Definition.Id}).");
-            }
-
-            var previousState = CurrentState;
-            CurrentState = newState;
-
-            var transition = new AlarmStateTransition
-            {
-                AlarmId = Definition.Id,
-                PreviousState = previousState,
-                NewState = newState,
-                Trigger = trigger,
-                Message = message
-            };
-
-            _logger.LogInformation("Alarm state transition: {Transition}", transition);
-            _stateTransitions.OnNext(transition);
-
-            return newState;
+            return FireCore(trigger, message);
         }
     }
 
@@ -91,6 +68,58 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
         {
             return TransitionTable.ContainsKey((CurrentState, trigger));
         }
+    }
+
+    /// <summary>
+    /// Fires a trigger if valid for the current state, otherwise logs a warning.
+    /// Must be called while holding <see cref="_stateLock"/>.
+    /// </summary>
+    /// <returns>True if the transition was executed.</returns>
+    private bool TryFireCore(AlarmTrigger trigger, string? message = null)
+    {
+        if (!TransitionTable.ContainsKey((CurrentState, trigger)))
+        {
+            _logger.LogWarning(
+                "Alarm '{AlarmName}' ({AlarmId}): trigger '{Trigger}' ignored — " +
+                "not valid in state '{State}'. Message: {Message}",
+                Definition.Name, Definition.Id, trigger, CurrentState, message ?? "(none)");
+            return false;
+        }
+
+        FireCore(trigger, message);
+        return true;
+    }
+
+    /// <summary>
+    /// Executes a state transition unconditionally.
+    /// Must be called while holding <see cref="_stateLock"/>.
+    /// </summary>
+    private AlarmState FireCore(AlarmTrigger trigger, string? message = null)
+    {
+        var key = (CurrentState, trigger);
+        if (!TransitionTable.TryGetValue(key, out var newState))
+        {
+            throw new InvalidOperationException(
+                $"Cannot fire trigger '{trigger}' from state '{CurrentState}' " +
+                $"for alarm '{Definition.Name}' ({Definition.Id}).");
+        }
+
+        var previousState = CurrentState;
+        CurrentState = newState;
+
+        var transition = new AlarmStateTransition
+        {
+            AlarmId = Definition.Id,
+            PreviousState = previousState,
+            NewState = newState,
+            Trigger = trigger,
+            Message = message
+        };
+
+        _logger.LogInformation("Alarm state transition: {Transition}", transition);
+        _stateTransitions.OnNext(transition);
+
+        return newState;
     }
 
     public IReadOnlyCollection<AlarmTrigger> GetPermittedTriggers()
@@ -106,11 +135,14 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
 
     public async Task ExecuteAsync(CancellationToken ct = default)
     {
-        if (CurrentState != AlarmState.Running)
+        lock (_stateLock)
         {
-            throw new InvalidOperationException(
-                $"Cannot execute alarm '{Definition.Name}' in state '{CurrentState}'. " +
-                "Alarm must be in Running state.");
+            if (CurrentState != AlarmState.Running)
+            {
+                throw new InvalidOperationException(
+                    $"Cannot execute alarm '{Definition.Name}' in state '{CurrentState}'. " +
+                    "Alarm must be in Running state.");
+            }
         }
 
         _logger.LogInformation(
@@ -162,9 +194,9 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
                 ct);
 
             // Ramp completed successfully
-            if (CurrentState == AlarmState.Running)
+            lock (_stateLock)
             {
-                Fire(AlarmTrigger.Complete, "Brightness ramp completed successfully");
+                TryFireCore(AlarmTrigger.Complete, "Brightness ramp completed successfully");
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -172,9 +204,9 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
             _logger.LogInformation(
                 "Alarm '{AlarmName}' execution cancelled", Definition.Name);
 
-            if (CurrentState == AlarmState.Running)
+            lock (_stateLock)
             {
-                Fire(AlarmTrigger.Error, "Execution cancelled");
+                TryFireCore(AlarmTrigger.Error, "Execution cancelled");
             }
         }
         catch (Exception ex)
@@ -183,9 +215,9 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
                 "Alarm '{AlarmName}' execution failed: {Error}",
                 Definition.Name, ex.Message);
 
-            if (CurrentState == AlarmState.Running)
+            lock (_stateLock)
             {
-                Fire(AlarmTrigger.Error, ex.Message);
+                TryFireCore(AlarmTrigger.Error, ex.Message);
             }
         }
         finally
@@ -201,9 +233,9 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
             "Alarm '{AlarmName}' interrupted: {Reason} - {Message}",
             Definition.Name, interruption.Reason, interruption.Message);
 
-        if (CanFire(AlarmTrigger.ManualOverride))
+        lock (_stateLock)
         {
-            Fire(AlarmTrigger.ManualOverride,
+            TryFireCore(AlarmTrigger.ManualOverride,
                 $"{interruption.Reason}: {interruption.Message}");
         }
     }
