@@ -198,21 +198,19 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
 
                 consecutiveFailures++;
 
-                var delay = CalculateReconnectDelay(consecutiveFailures - 1);
                 if (_options.MaxReconnectionAttempts > 0 &&
                     consecutiveFailures >= _options.MaxReconnectionAttempts)
                 {
-                    _logger.LogWarning(
-                        "MQTT reconnect reached max attempt threshold ({Attempts}). Continuing retries with delay {Delay}.",
-                        _options.MaxReconnectionAttempts, delay);
-                }
-                else
-                {
-                    _logger.LogInformation(
-                        "MQTT reconnect attempt {NextAttempt} in {Delay}",
-                        consecutiveFailures + 1, delay);
+                    _logger.LogError(
+                        "MQTT reconnect stopped after reaching MaxReconnectionAttempts={Attempts}.",
+                        _options.MaxReconnectionAttempts);
+                    break;
                 }
 
+                var delay = CalculateReconnectDelay(consecutiveFailures - 1);
+                _logger.LogInformation(
+                    "MQTT reconnect attempt {NextAttempt} in {Delay}",
+                    consecutiveFailures + 1, delay);
                 await Task.Delay(delay, ct);
             }
         }

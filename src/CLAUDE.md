@@ -127,7 +127,7 @@ dotnet package search --take 1 --source nuget.org "$@"
 
 ## Conventions
 
-- **Resilience:** Use Polly (`Microsoft.Extensions.Resilience`) for all retry and resilience logic. Do not hand-roll retry loops.
+- **Resilience:** Use Polly (`Microsoft.Extensions.Resilience`) for the REST APIs retry and resilience logic. 
 
 ## Next Steps (Phase 1)
 

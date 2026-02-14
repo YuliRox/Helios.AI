@@ -71,7 +71,7 @@ public class DimmerCommandPublisher : IDimmerCommandPublisher
             if (effectivePercentage == 0)
             {
                 // Turn off if below minimum threshold
-                await TurnOffAsync(ct);
+                await PublishPowerCommandAsync(false, ct);
             }
             else
             {
