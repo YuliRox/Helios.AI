@@ -1,0 +1,9 @@
+.git
+.gitignore
+*.md
+**/bin
+**/obj
+**/.idea
+**/*.user
+**/*.suo
+**/TestResults
