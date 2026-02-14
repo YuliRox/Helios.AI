@@ -1,7 +1,6 @@
 using LumiRise.Api.Configuration;
 using LumiRise.Api.Services.Mqtt.Interfaces;
 using LumiRise.Api.Services.Mqtt.Models;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MQTTnet;
@@ -16,7 +15,7 @@ namespace LumiRise.Api.Services.Mqtt.Implementation;
 /// Manages MQTT broker connection with timer-based health checking and reconnection.
 /// Publishes connection state changes and message events as observables.
 /// </summary>
-public class MqttConnectionManager : IHostedService, IMqttConnectionManager
+public class MqttConnectionManager : IMqttConnectionManager
 {
     private sealed record QueuedCommand(string Topic, string Payload, DateTimeOffset EnqueuedAtUtc);
 
@@ -67,19 +66,6 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
     public IObservable<MqttConnectionState> ConnectionState => _connectionStateSubject.AsObservable();
 
     public IObservable<(string Topic, string Payload)> MessageReceived => _messageReceivedSubject.AsObservable();
-
-    public async Task StartAsync(CancellationToken cancellationToken)
-    {
-        _logger.LogInformation("MQTT Connection Manager starting");
-        await ConnectAsync(cancellationToken);
-    }
-
-    public async Task StopAsync(CancellationToken cancellationToken)
-    {
-        _logger.LogInformation("MQTT Connection Manager stopping");
-        await DisconnectAsync(cancellationToken);
-        await StopConnectionMonitorAsync();
-    }
 
     public async Task ConnectAsync(CancellationToken ct)
     {

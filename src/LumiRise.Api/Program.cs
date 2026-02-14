@@ -23,10 +23,7 @@ builder.Services.AddScoped<IDimmerCommandPublisher, DimmerCommandPublisher>();
 // Register Alarm services
 builder.Services.AddScoped<IAlarmStateMachineFactory, AlarmStateMachineFactory>();
 
-// Register MqttConnectionManager as hosted service
-builder.Services.AddHostedService(sp =>
-    sp.GetRequiredService<IMqttConnectionManager>() as MqttConnectionManager
-        ?? throw new InvalidOperationException("MqttConnectionManager not registered"));
+builder.Services.AddHostedService<MqttConnectionHostedService>();
 
 var app = builder.Build();
 
