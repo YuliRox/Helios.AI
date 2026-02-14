@@ -67,6 +67,19 @@ public class MqttOptions
     public double BackoffMultiplier { get; set; } = 2.0;
 
     /// <summary>
+    /// Gets or sets the maximum number of reconnection attempts before giving up.
+    /// Default: 20
+    /// </summary>
+    public int MaxReconnectionAttempts { get; set; } = 20;
+
+    /// <summary>
+    /// Gets or sets the maximum number of commands that can be queued while disconnected.
+    /// Commands exceeding this limit are discarded.
+    /// Default: 20
+    /// </summary>
+    public int CommandQueueDepth { get; set; } = 20;
+
+    /// <summary>
     /// Gets or sets the timeout for command publishing operations in milliseconds.
     /// Default: 5000 (5 seconds)
     /// </summary>

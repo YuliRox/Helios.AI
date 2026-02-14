@@ -1,10 +1,10 @@
 using LumiRise.Api.Configuration;
 using LumiRise.Api.Services.Mqtt.Interfaces;
 using LumiRise.Api.Services.Mqtt.Models;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MQTTnet;
+using MQTTnet.Exceptions;
 using System.Collections.Concurrent;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
@@ -12,126 +12,142 @@ using System.Reactive.Subjects;
 namespace LumiRise.Api.Services.Mqtt.Implementation;
 
 /// <summary>
-/// Manages MQTT broker connection with exponential backoff reconnection strategy.
+/// Manages MQTT broker connection with timer-based health checking and reconnection.
 /// Publishes connection state changes and message events as observables.
 /// </summary>
-public class MqttConnectionManager : IHostedService, IMqttConnectionManager
+public class MqttConnectionManager : IMqttConnectionManager
 {
+    private sealed record QueuedCommand(string Topic, string Payload, DateTimeOffset EnqueuedAtUtc);
+
     private readonly ILogger<MqttConnectionManager> _logger;
     private readonly MqttOptions _options;
     private readonly IMqttClient _mqttClient;
+    private readonly MqttClientOptions _clientOptions;
     private readonly Subject<MqttConnectionState> _connectionStateSubject = new();
     private readonly Subject<(string Topic, string Payload)> _messageReceivedSubject = new();
-    private readonly ConcurrentQueue<(string Topic, string Payload)> _commandQueue = new();
+    private readonly ConcurrentDictionary<string, byte> _subscriptions = new(StringComparer.Ordinal);
+    private readonly ConcurrentQueue<QueuedCommand> _commandQueue = new();
     private readonly SemaphoreSlim _connectionLock = new(1, 1);
     private readonly CancellationTokenSource _disposalCts = new();
+    private readonly object _monitorSync = new();
+    private readonly object _queueDrainSync = new();
 
+    private static readonly TimeSpan DisposalTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan QueuedCommandMaxAge = TimeSpan.FromMinutes(5);
+
+    private CancellationTokenSource? _connectionMonitorCts;
+    private Task? _connectionMonitorTask;
+    private Task? _queueDrainTask;
     private int _connectionAttempt;
-    private bool _isConnected;
+    private int _isConnected;
+    private int _queuedCommandCount;
+    private bool _disconnectRequested;
     private bool _disposed;
 
     public MqttConnectionManager(
         ILogger<MqttConnectionManager> logger,
         IOptions<MqttOptions> options)
     {
+        ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(options);
+
         _logger = logger;
         _options = options.Value;
 
         var factory = new MqttClientFactory();
         _mqttClient = factory.CreateMqttClient();
+        _clientOptions = BuildClientOptions();
+
+        _mqttClient.ApplicationMessageReceivedAsync += HandleMessageReceivedAsync;
     }
 
-    public bool IsConnected => _isConnected;
+    public bool IsConnected => Volatile.Read(ref _isConnected) == 1;
 
     public IObservable<MqttConnectionState> ConnectionState => _connectionStateSubject.AsObservable();
 
     public IObservable<(string Topic, string Payload)> MessageReceived => _messageReceivedSubject.AsObservable();
 
-    public async Task StartAsync(CancellationToken cancellationToken)
-    {
-        _logger.LogInformation("MQTT Connection Manager starting");
-        await ConnectAsync(cancellationToken);
-    }
-
-    public async Task StopAsync(CancellationToken cancellationToken)
-    {
-        _logger.LogInformation("MQTT Connection Manager stopping");
-        await DisconnectAsync(cancellationToken);
-    }
-
     public async Task ConnectAsync(CancellationToken ct)
+    {
+        ThrowIfDisposed();
+
+        _disconnectRequested = false;
+        StartConnectionMonitor();
+        await TryConnectOnceAsync(ct);
+    }
+
+    /// <summary>
+    /// Attempts a single connection to the MQTT broker and returns true on success.
+    /// </summary>
+    private async Task<bool> TryConnectOnceAsync(CancellationToken ct)
     {
         await _connectionLock.WaitAsync(ct);
         try
         {
-            if (_isConnected)
+            if (_disposed || _disconnectRequested)
             {
-                _logger.LogInformation("Already connected to MQTT broker");
-                return;
+                return false;
+            }
+
+            if (_mqttClient.IsConnected)
+            {
+                if (Interlocked.Exchange(ref _isConnected, 1) == 0)
+                {
+                    _connectionStateSubject.OnNext(new MqttConnectionState
+                    {
+                        IsConnected = true,
+                        AttemptNumber = Math.Max(_connectionAttempt, 1)
+                    });
+                }
+
+                _connectionAttempt = 0;
+                StartQueueDrain();
+                return true;
             }
 
             _connectionAttempt++;
-            var connectionState = new MqttConnectionState
-            {
-                IsConnected = false,
-                AttemptNumber = _connectionAttempt
-            };
+            var attempt = _connectionAttempt;
 
             try
             {
-                var options = new MqttClientOptionsBuilder()
-                    .WithTcpServer(_options.Server, _options.Port)
-                    .WithClientId(_options.ClientId)
-                    .WithKeepAlivePeriod(TimeSpan.FromSeconds(_options.KeepAliveSeconds));
-
-                if (!string.IsNullOrWhiteSpace(_options.Username))
+                var result = await _mqttClient.ConnectAsync(_clientOptions, ct);
+                if (result.ResultCode != MqttClientConnectResultCode.Success)
                 {
-                    options.WithCredentials(_options.Username, _options.Password);
+                    PublishDisconnectedState(attempt, result.ResultCode.ToString());
+                    _logger.LogWarning(
+                        "Failed to connect to MQTT broker at {Server}:{Port} (attempt {Attempt}): {ResultCode}",
+                        _options.Server, _options.Port, attempt, result.ResultCode);
+                    return false;
                 }
 
-                var clientOptions = options.Build();
-
-                var result = await _mqttClient.ConnectAsync(clientOptions, ct);
-
-                if (result.ResultCode == MqttClientConnectResultCode.Success)
+                Interlocked.Exchange(ref _isConnected, 1);
+                _connectionStateSubject.OnNext(new MqttConnectionState
                 {
-                    _isConnected = true;
-                    connectionState.IsConnected = true;
-                    _logger.LogInformation("Connected to MQTT broker at {Server}:{Port}",
-                        _options.Server, _options.Port);
+                    IsConnected = true,
+                    AttemptNumber = attempt
+                });
 
-                    _connectionStateSubject.OnNext(connectionState);
+                _logger.LogInformation(
+                    "Connected to MQTT broker at {Server}:{Port} on attempt {Attempt}",
+                    _options.Server, _options.Port, attempt);
 
-                    // Hook up message handler for subscribed topics
-                    _mqttClient.ApplicationMessageReceivedAsync += HandleMessageReceivedAsync;
-
-                    // Reset attempt counter on successful connection
-                    _connectionAttempt = 0;
-
-                    // Process any queued commands
-                    _ = ProcessQueuedCommandsAsync(_disposalCts.Token);
-                }
-                else
-                {
-                    _isConnected = false;
-                    connectionState.LastError = result.ResultCode.ToString();
-                    _logger.LogWarning("Failed to connect to MQTT broker: {ResultCode}",
-                        result.ResultCode);
-                    _connectionStateSubject.OnNext(connectionState);
-
-                    // Schedule reconnection with exponential backoff
-                    _ = ScheduleReconnectionAsync(_disposalCts.Token);
-                }
+                _connectionAttempt = 0;
+                await ResubscribeTopicsAsync(ct);
+                StartQueueDrain();
+                return true;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
-                _isConnected = false;
-                connectionState.LastError = ex.Message;
-                _logger.LogError(ex, "Error connecting to MQTT broker");
-                _connectionStateSubject.OnNext(connectionState);
-
-                // Schedule reconnection with exponential backoff
-                _ = ScheduleReconnectionAsync(_disposalCts.Token);
+                PublishDisconnectedState(attempt, ex.Message);
+                _logger.LogWarning(
+                    ex,
+                    "Error connecting to MQTT broker at {Server}:{Port} (attempt {Attempt})",
+                    _options.Server, _options.Port, attempt);
+                return false;
             }
         }
         finally
@@ -140,18 +156,381 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
         }
     }
 
-    public async Task DisconnectAsync(CancellationToken ct)
+    /// <summary>
+    /// Keeps the connection alive and reconnects based on timer ticks.
+    /// </summary>
+    private async Task MonitorConnectionAsync(CancellationToken ct)
     {
-        await _connectionLock.WaitAsync(ct);
         try
         {
-            if (!_isConnected)
+            var tickIntervalMs = Math.Max(500, _options.ReconnectionDelayMs);
+            using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(tickIntervalMs));
+            var consecutiveFailures = 0;
+
+            while (await timer.WaitForNextTickAsync(ct))
+            {
+                if (_disconnectRequested || _disposed)
+                {
+                    consecutiveFailures = 0;
+                    continue;
+                }
+
+                var healthy = await EnsureConnectionHealthyAsync(ct);
+                if (healthy)
+                {
+                    consecutiveFailures = 0;
+                    continue;
+                }
+
+                consecutiveFailures++;
+
+                if (_options.MaxReconnectionAttempts > 0 &&
+                    consecutiveFailures >= _options.MaxReconnectionAttempts)
+                {
+                    _logger.LogError(
+                        "MQTT reconnect stopped after reaching MaxReconnectionAttempts={Attempts}.",
+                        _options.MaxReconnectionAttempts);
+                    break;
+                }
+
+                var delay = CalculateReconnectDelay(consecutiveFailures - 1);
+                _logger.LogInformation(
+                    "MQTT reconnect attempt {NextAttempt} in {Delay}",
+                    consecutiveFailures + 1, delay);
+                await Task.Delay(delay, ct);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogDebug("MQTT monitor loop cancelled");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error in MQTT monitor loop");
+        }
+    }
+
+    private async Task<bool> EnsureConnectionHealthyAsync(CancellationToken ct)
+    {
+        if (_mqttClient.IsConnected)
+        {
+            try
+            {
+                using var pingCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                pingCts.CancelAfter(TimeSpan.FromSeconds(Math.Max(2, _options.KeepAliveSeconds)));
+
+                var pingOk = await _mqttClient.TryPingAsync(pingCts.Token);
+                if (pingOk)
+                {
+                    if (Interlocked.Exchange(ref _isConnected, 1) == 0)
+                    {
+                        _connectionStateSubject.OnNext(new MqttConnectionState
+                        {
+                            IsConnected = true,
+                            AttemptNumber = Math.Max(_connectionAttempt, 1)
+                        });
+                    }
+
+                    StartQueueDrain();
+                    return true;
+                }
+
+                MarkDisconnected("Ping failed");
+                return false;
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                MarkDisconnected("Ping timed out");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                MarkDisconnected(ex.Message, ex);
+                return false;
+            }
+        }
+
+        MarkDisconnected("Broker disconnected");
+        return await TryConnectOnceAsync(ct);
+    }
+
+    private void StartConnectionMonitor()
+    {
+        lock (_monitorSync)
+        {
+            if (_disposed || _disposalCts.IsCancellationRequested)
+            {
                 return;
+            }
+
+            if (_connectionMonitorTask is not null && !_connectionMonitorTask.IsCompleted)
+            {
+                return;
+            }
+
+            _connectionMonitorCts?.Dispose();
+            _connectionMonitorCts = CancellationTokenSource.CreateLinkedTokenSource(_disposalCts.Token);
+            _connectionMonitorTask = MonitorConnectionAsync(_connectionMonitorCts.Token);
+        }
+    }
+
+    private async Task StopConnectionMonitorAsync()
+    {
+        Task? taskToAwait = null;
+        CancellationTokenSource? ctsToCancel = null;
+
+        lock (_monitorSync)
+        {
+            if (_connectionMonitorCts is null)
+            {
+                return;
+            }
+
+            ctsToCancel = _connectionMonitorCts;
+            taskToAwait = _connectionMonitorTask;
+            _connectionMonitorCts = null;
+            _connectionMonitorTask = null;
+        }
+
+        try
+        {
+            ctsToCancel.Cancel();
+
+            if (taskToAwait is not null)
+            {
+                await taskToAwait;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogDebug("MQTT monitor loop stop acknowledged");
+        }
+        finally
+        {
+            ctsToCancel.Dispose();
+        }
+    }
+
+    private void StartQueueDrain()
+    {
+        lock (_queueDrainSync)
+        {
+            if (_disposed || _disconnectRequested || _disposalCts.IsCancellationRequested || !IsConnected)
+            {
+                return;
+            }
+
+            if (_queueDrainTask is not null && !_queueDrainTask.IsCompleted)
+            {
+                return;
+            }
+
+            _queueDrainTask = ProcessQueuedCommandsAsync(_disposalCts.Token);
+        }
+    }
+
+    private async Task ProcessQueuedCommandsAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested && IsConnected)
+        {
+            if (!_commandQueue.TryDequeue(out var command))
+            {
+                return;
+            }
+
+            Interlocked.Decrement(ref _queuedCommandCount);
+
+            if (DateTimeOffset.UtcNow - command.EnqueuedAtUtc > QueuedCommandMaxAge)
+            {
+                _logger.LogWarning(
+                    "Discarding queued command older than {MaxAge}: {Topic} = {Payload}",
+                    QueuedCommandMaxAge, command.Topic, command.Payload);
+                continue;
+            }
 
             try
             {
-                _mqttClient.ApplicationMessageReceivedAsync -= HandleMessageReceivedAsync;
-                await _mqttClient.DisconnectAsync(new MqttClientDisconnectOptions(){Reason = MqttClientDisconnectOptionsReason.NormalDisconnection}, cancellationToken: ct);
+                await PublishCoreAsync(command.Topic, command.Payload, ct, enqueueOnDisconnect: false);
+            }
+            catch (InvalidOperationException)
+            {
+                RequeueCommand(command);
+                return;
+            }
+            catch (MqttClientNotConnectedException)
+            {
+                RequeueCommand(command);
+                return;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing queued command, will retry after reconnect");
+                RequeueCommand(command);
+                return;
+            }
+        }
+    }
+
+    private void EnqueueCommand(string topic, string payload)
+    {
+        if (_disconnectRequested || _disposed || _disposalCts.IsCancellationRequested)
+        {
+            return;
+        }
+
+        if (Volatile.Read(ref _queuedCommandCount) >= _options.CommandQueueDepth)
+        {
+            _logger.LogWarning(
+                "Command queue full ({QueueDepth}), discarding command: {Topic} = {Payload}",
+                _options.CommandQueueDepth, topic, payload);
+            return;
+        }
+
+        _commandQueue.Enqueue(new QueuedCommand(topic, payload, DateTimeOffset.UtcNow));
+        Interlocked.Increment(ref _queuedCommandCount);
+        _logger.LogDebug("Queued command while disconnected: {Topic} = {Payload}", topic, payload);
+    }
+
+    private void RequeueCommand(QueuedCommand command)
+    {
+        if (_disconnectRequested || _disposed || _disposalCts.IsCancellationRequested)
+        {
+            return;
+        }
+
+        if (DateTimeOffset.UtcNow - command.EnqueuedAtUtc > QueuedCommandMaxAge)
+        {
+            _logger.LogWarning(
+                "Discarding queued command after reconnect timeout ({MaxAge}): {Topic} = {Payload}",
+                QueuedCommandMaxAge, command.Topic, command.Payload);
+            return;
+        }
+
+        if (Volatile.Read(ref _queuedCommandCount) >= _options.CommandQueueDepth)
+        {
+            _logger.LogWarning(
+                "Command queue full ({QueueDepth}), discarding re-queued command: {Topic} = {Payload}",
+                _options.CommandQueueDepth, command.Topic, command.Payload);
+            return;
+        }
+
+        _commandQueue.Enqueue(command);
+        Interlocked.Increment(ref _queuedCommandCount);
+    }
+
+    private void ClearQueuedCommands(string reason)
+    {
+        var removed = 0;
+        while (_commandQueue.TryDequeue(out _))
+        {
+            removed++;
+        }
+
+        Interlocked.Exchange(ref _queuedCommandCount, 0);
+
+        if (removed > 0)
+        {
+            _logger.LogInformation("Discarded {Count} queued MQTT command(s): {Reason}", removed, reason);
+        }
+    }
+
+    private MqttClientOptions BuildClientOptions()
+    {
+        var builder = new MqttClientOptionsBuilder()
+            .WithTcpServer(_options.Server, _options.Port)
+            .WithClientId(_options.ClientId)
+            .WithKeepAlivePeriod(TimeSpan.FromSeconds(_options.KeepAliveSeconds));
+
+        if (!string.IsNullOrWhiteSpace(_options.Username))
+        {
+            builder.WithCredentials(_options.Username, _options.Password);
+        }
+
+        return builder.Build();
+    }
+
+    private TimeSpan CalculateReconnectDelay(int failedAttemptIndex)
+    {
+        var minDelayMs = Math.Max(100, _options.ReconnectionDelayMs);
+        var maxDelayMs = Math.Max(minDelayMs, _options.MaxReconnectionDelayMs);
+        var multiplier = _options.BackoffMultiplier <= 0 ? 2.0 : _options.BackoffMultiplier;
+
+        var exponential = minDelayMs * Math.Pow(multiplier, failedAttemptIndex);
+        var capped = Math.Min(maxDelayMs, exponential);
+
+        var jitterFactor = 0.8 + (Random.Shared.NextDouble() * 0.4);
+        return TimeSpan.FromMilliseconds(capped * jitterFactor);
+    }
+
+    private void PublishDisconnectedState(int attempt, string? error)
+    {
+        Interlocked.Exchange(ref _isConnected, 0);
+        _connectionStateSubject.OnNext(new MqttConnectionState
+        {
+            IsConnected = false,
+            AttemptNumber = attempt,
+            LastError = error
+        });
+    }
+
+    private void MarkDisconnected(string? error, Exception? ex = null)
+    {
+        if (Interlocked.Exchange(ref _isConnected, 0) != 1)
+        {
+            return;
+        }
+
+        _connectionStateSubject.OnNext(new MqttConnectionState
+        {
+            IsConnected = false,
+            AttemptNumber = _connectionAttempt,
+            LastError = error
+        });
+
+        if (ex is null)
+        {
+            _logger.LogWarning("MQTT broker connection lost: {Error}", error);
+        }
+        else
+        {
+            _logger.LogWarning(ex, "MQTT broker connection lost: {Error}", error);
+        }
+    }
+
+    private async Task ResubscribeTopicsAsync(CancellationToken ct)
+    {
+        if (_subscriptions.IsEmpty)
+        {
+            return;
+        }
+
+        var topics = _subscriptions.Keys.ToArray();
+        foreach (var topic in topics)
+        {
+            await _mqttClient.SubscribeAsync(topic, cancellationToken: ct);
+            _logger.LogDebug("Re-subscribed to {Topic}", topic);
+        }
+    }
+
+    public async Task DisconnectAsync(CancellationToken ct)
+    {
+        _disconnectRequested = true;
+        ClearQueuedCommands("explicit disconnect");
+
+        await _connectionLock.WaitAsync(ct);
+        try
+        {
+            if (!_mqttClient.IsConnected)
+            {
+                MarkDisconnected("Disconnected");
+                return;
+            }
+
+            try
+            {
+                await _mqttClient.DisconnectAsync(
+                    new MqttClientDisconnectOptions { Reason = MqttClientDisconnectOptionsReason.NormalDisconnection },
+                    cancellationToken: ct);
                 _logger.LogInformation("Disconnected from MQTT broker");
             }
             catch (Exception ex)
@@ -161,13 +540,7 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
             }
             finally
             {
-                _isConnected = false;
-                var connectionState = new MqttConnectionState
-                {
-                    IsConnected = false,
-                    AttemptNumber = _connectionAttempt
-                };
-                _connectionStateSubject.OnNext(connectionState);
+                MarkDisconnected("Disconnected");
             }
         }
         finally
@@ -178,10 +551,21 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
 
     public async Task PublishAsync(string topic, string payload, CancellationToken ct)
     {
-        if (!_isConnected)
+        ArgumentNullException.ThrowIfNull(topic);
+        ArgumentNullException.ThrowIfNull(payload);
+
+        await PublishCoreAsync(topic, payload, ct, enqueueOnDisconnect: true);
+    }
+
+    private async Task PublishCoreAsync(string topic, string payload, CancellationToken ct, bool enqueueOnDisconnect)
+    {
+        if (!IsConnected)
         {
-            _logger.LogDebug("Not connected, queueing command: {Topic} = {Payload}", topic, payload);
-            _commandQueue.Enqueue((topic, payload));
+            if (enqueueOnDisconnect)
+            {
+                EnqueueCommand(topic, payload);
+            }
+
             throw new InvalidOperationException("MQTT broker is not connected");
         }
 
@@ -198,6 +582,16 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
             await _mqttClient.PublishAsync(message, cts.Token);
             _logger.LogDebug("Published to {Topic}: {Payload}", topic, payload);
         }
+        catch (MqttClientNotConnectedException ex)
+        {
+            if (enqueueOnDisconnect)
+            {
+                EnqueueCommand(topic, payload);
+            }
+
+            MarkDisconnected(ex.Message, ex);
+            throw;
+        }
         catch (OperationCanceledException)
         {
             _logger.LogError("Timeout publishing to {Topic}", topic);
@@ -212,7 +606,10 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
 
     public async Task SubscribeAsync(string topic, CancellationToken ct)
     {
-        if (!_isConnected)
+        ArgumentNullException.ThrowIfNull(topic);
+        _subscriptions.TryAdd(topic, 0);
+
+        if (!IsConnected)
         {
             _logger.LogWarning("Not connected, cannot subscribe to {Topic}", topic);
             throw new InvalidOperationException("MQTT broker is not connected");
@@ -223,55 +620,16 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
             await _mqttClient.SubscribeAsync(topic, cancellationToken: ct);
             _logger.LogDebug("Subscribed to {Topic}", topic);
         }
+        catch (MqttClientNotConnectedException ex)
+        {
+            _logger.LogWarning(ex, "MQTT client disconnected while subscribing to {Topic}", topic);
+            MarkDisconnected(ex.Message, ex);
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error subscribing to {Topic}", topic);
             throw;
-        }
-    }
-
-    private async Task ScheduleReconnectionAsync(CancellationToken ct)
-    {
-        try
-        {
-            var delayMs = (int)Math.Min(
-                _options.ReconnectionDelayMs * Math.Pow(_options.BackoffMultiplier, _connectionAttempt - 1),
-                _options.MaxReconnectionDelayMs
-            );
-
-            _logger.LogInformation("Scheduling reconnection in {DelayMs}ms (attempt {Attempt})",
-                delayMs, _connectionAttempt);
-
-            await Task.Delay(delayMs, ct);
-            await ConnectAsync(ct);
-        }
-        catch (OperationCanceledException)
-        {
-            _logger.LogDebug("Reconnection scheduling cancelled");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error in reconnection scheduling");
-        }
-    }
-
-    private async Task ProcessQueuedCommandsAsync(CancellationToken ct)
-    {
-        while (!ct.IsCancellationRequested && _commandQueue.TryDequeue(out var command))
-        {
-            try
-            {
-                _logger.LogInformation("Processing queued command: {Topic} = {Payload}",
-                    command.Topic, command.Payload);
-                await PublishAsync(command.Topic, command.Payload, ct);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error processing queued command");
-                // Re-queue on error
-                _commandQueue.Enqueue(command);
-                break;
-            }
         }
     }
 
@@ -290,17 +648,61 @@ public class MqttConnectionManager : IHostedService, IMqttConnectionManager
             return;
 
         _disposed = true;
+        _disconnectRequested = true;
+        ClearQueuedCommands("dispose");
 
-        _disposalCts.Cancel();
+        await _disposalCts.CancelAsync();
+        await StopConnectionMonitorAsync();
+
+        var pendingTasks = new[] { _connectionMonitorTask, _queueDrainTask }
+            .Where(t => t is not null && !t.IsCompleted)
+            .Cast<Task>()
+            .ToArray();
+
+        if (pendingTasks.Length > 0)
+        {
+            try
+            {
+                await Task.WhenAll(pendingTasks).WaitAsync(DisposalTimeout);
+            }
+            catch (TimeoutException)
+            {
+                _logger.LogWarning("Background tasks did not complete within {Timeout}", DisposalTimeout);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error awaiting background tasks during disposal");
+            }
+        }
+
+        try
+        {
+            using var disconnectCts = new CancellationTokenSource(DisposalTimeout);
+            await DisconnectAsync(disconnectCts.Token);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error disconnecting during disposal");
+        }
+
+        _mqttClient.ApplicationMessageReceivedAsync -= HandleMessageReceivedAsync;
+
         _disposalCts.Dispose();
+        _mqttClient.Dispose();
 
-        await DisconnectAsync(CancellationToken.None);
+        _connectionStateSubject.OnCompleted();
+        _connectionStateSubject.Dispose();
 
-        _mqttClient?.Dispose();
-        _connectionStateSubject?.Dispose();
-        _messageReceivedSubject?.Dispose();
-        _connectionLock?.Dispose();
+        _messageReceivedSubject.OnCompleted();
+        _messageReceivedSubject.Dispose();
+
+        _connectionLock.Dispose();
 
         GC.SuppressFinalize(this);
+    }
+
+    private void ThrowIfDisposed()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
     }
 }

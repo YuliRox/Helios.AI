@@ -32,7 +32,7 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
     /// <typeparam name="T">The type for which the logger is created.</typeparam>
     /// <returns>ILogger instance that outputs to xUnit.</returns>
     private ILogger<T> CreateTestLogger<T>()
-        => new TestOutputLogger<T>(_testOutput);
+        => new ErrorFailingLogger<T>(_testOutput);
 
     /// <summary>
     /// Configures the Mosquitto container with pinned image version for reproducibility.

@@ -11,12 +11,13 @@ namespace LumiRise.Tests.Services.Mqtt;
 
 public class InterruptionDetectorTests
 {
-    private readonly Mock<ILogger<InterruptionDetector>> _loggerMock = new();
+    private readonly ILogger<InterruptionDetector> _logger;
     private readonly Mock<IDimmerStateMonitor> _stateMonitorMock = new();
     private readonly Subject<DimmerState> _stateChangesSubject = new();
 
-    public InterruptionDetectorTests()
+    public InterruptionDetectorTests(ITestOutputHelper testOutput)
     {
+        _logger = new ErrorFailingLogger<InterruptionDetector>(testOutput.WriteLine);
         _stateMonitorMock
             .Setup(x => x.StateChanges)
             .Returns(_stateChangesSubject.AsObservable());
@@ -25,7 +26,7 @@ public class InterruptionDetectorTests
     [Fact]
     public void DetectsPowerOffInterruption()
     {
-        var detector = new InterruptionDetector(_loggerMock.Object, _stateMonitorMock.Object);
+        var detector = new InterruptionDetector(_logger, _stateMonitorMock.Object);
 
         var interruptions = new List<InterruptionEvent>();
         var subscription = detector.Interruptions.Subscribe(evt => interruptions.Add(evt));
@@ -45,7 +46,7 @@ public class InterruptionDetectorTests
     [Fact]
     public void DetectsBrightnessAdjustmentInterruption()
     {
-        var detector = new InterruptionDetector(_loggerMock.Object, _stateMonitorMock.Object);
+        var detector = new InterruptionDetector(_logger, _stateMonitorMock.Object);
 
         var interruptions = new List<InterruptionEvent>();
         var subscription = detector.Interruptions.Subscribe(evt => interruptions.Add(evt));
@@ -65,7 +66,7 @@ public class InterruptionDetectorTests
     [Fact]
     public void IgnoresSmallBrightnessVariations()
     {
-        var detector = new InterruptionDetector(_loggerMock.Object, _stateMonitorMock.Object);
+        var detector = new InterruptionDetector(_logger, _stateMonitorMock.Object);
 
         var interruptions = new List<InterruptionEvent>();
         var subscription = detector.Interruptions.Subscribe(evt => interruptions.Add(evt));
@@ -84,7 +85,7 @@ public class InterruptionDetectorTests
     [Fact]
     public void DoesNotDetectWhenDisabled()
     {
-        var detector = new InterruptionDetector(_loggerMock.Object, _stateMonitorMock.Object);
+        var detector = new InterruptionDetector(_logger, _stateMonitorMock.Object);
 
         var interruptions = new List<InterruptionEvent>();
         var subscription = detector.Interruptions.Subscribe(evt => interruptions.Add(evt));
@@ -103,7 +104,7 @@ public class InterruptionDetectorTests
     [Fact]
     public void DoesNotDetectWithoutExpectedState()
     {
-        var detector = new InterruptionDetector(_loggerMock.Object, _stateMonitorMock.Object);
+        var detector = new InterruptionDetector(_logger, _stateMonitorMock.Object);
 
         var interruptions = new List<InterruptionEvent>();
         var subscription = detector.Interruptions.Subscribe(evt => interruptions.Add(evt));
@@ -121,7 +122,7 @@ public class InterruptionDetectorTests
     [Fact]
     public void ClearsExpectedState()
     {
-        var detector = new InterruptionDetector(_loggerMock.Object, _stateMonitorMock.Object);
+        var detector = new InterruptionDetector(_logger, _stateMonitorMock.Object);
 
         var interruptions = new List<InterruptionEvent>();
         var subscription = detector.Interruptions.Subscribe(evt => interruptions.Add(evt));
@@ -141,7 +142,7 @@ public class InterruptionDetectorTests
     [Fact]
     public void PublishesInterruptionWithDetails()
     {
-        var detector = new InterruptionDetector(_loggerMock.Object, _stateMonitorMock.Object);
+        var detector = new InterruptionDetector(_logger, _stateMonitorMock.Object);
 
         var interruptions = new List<InterruptionEvent>();
         var subscription = detector.Interruptions.Subscribe(evt => interruptions.Add(evt));
@@ -166,7 +167,7 @@ public class InterruptionDetectorTests
     [Fact]
     public void DetectsMultipleInterruptions()
     {
-        var detector = new InterruptionDetector(_loggerMock.Object, _stateMonitorMock.Object);
+        var detector = new InterruptionDetector(_logger, _stateMonitorMock.Object);
 
         var interruptions = new List<InterruptionEvent>();
         var subscription = detector.Interruptions.Subscribe(evt => interruptions.Add(evt));

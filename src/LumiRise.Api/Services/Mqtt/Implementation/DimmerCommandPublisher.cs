@@ -22,6 +22,10 @@ public class DimmerCommandPublisher : IDimmerCommandPublisher
         IMqttConnectionManager connectionManager,
         IOptions<MqttOptions> options)
     {
+        ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(connectionManager);
+        ArgumentNullException.ThrowIfNull(options);
+
         _logger = logger;
         _connectionManager = connectionManager;
         _options = options.Value;
@@ -32,12 +36,7 @@ public class DimmerCommandPublisher : IDimmerCommandPublisher
         await _commandMutex.WaitAsync(ct);
         try
         {
-            var payload = JsonSerializer.Serialize(new { POWER = "ON" });
-            await _connectionManager.PublishAsync(
-                _options.Topics.DimmerOnOffCommand,
-                payload,
-                ct);
-            _logger.LogInformation("Turned dimmer on");
+            await PublishPowerCommandAsync(true, ct);
         }
         finally
         {
@@ -50,12 +49,7 @@ public class DimmerCommandPublisher : IDimmerCommandPublisher
         await _commandMutex.WaitAsync(ct);
         try
         {
-            var payload = JsonSerializer.Serialize(new { POWER = "OFF" });
-            await _connectionManager.PublishAsync(
-                _options.Topics.DimmerOnOffCommand,
-                payload,
-                ct);
-            _logger.LogInformation("Turned dimmer off");
+            await PublishPowerCommandAsync(false, ct);
         }
         finally
         {
@@ -77,7 +71,7 @@ public class DimmerCommandPublisher : IDimmerCommandPublisher
             if (effectivePercentage == 0)
             {
                 // Turn off if below minimum threshold
-                await TurnOffAsync(ct);
+                await PublishPowerCommandAsync(false, ct);
             }
             else
             {
@@ -156,6 +150,19 @@ public class DimmerCommandPublisher : IDimmerCommandPublisher
             _logger.LogInformation("Brightness ramp cancelled");
             throw;
         }
+    }
+
+    /// <summary>
+    /// Publishes a power on/off command. Must be called while holding _commandMutex.
+    /// </summary>
+    private async Task PublishPowerCommandAsync(bool on, CancellationToken ct)
+    {
+        var payload = JsonSerializer.Serialize(new { POWER = on ? "ON" : "OFF" });
+        await _connectionManager.PublishAsync(
+            _options.Topics.DimmerOnOffCommand,
+            payload,
+            ct);
+        _logger.LogInformation("Turned dimmer {State}", on ? "on" : "off");
     }
 
     private int ApplyMinimumBrightnessThreshold(int percentage)
