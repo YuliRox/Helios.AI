@@ -10,7 +10,20 @@ public sealed class LumiRiseDbContext(DbContextOptions<LumiRiseDbContext> option
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         var alarm = modelBuilder.Entity<AlarmScheduleEntity>();
-        alarm.ToTable("alarm_schedules");
+        alarm.ToTable(
+            "alarm_schedules",
+            tableBuilder =>
+            {
+                tableBuilder.HasCheckConstraint(
+                    "CK_alarm_schedules_ramp_duration_positive",
+                    "\"RampDurationSeconds\" > 0");
+                tableBuilder.HasCheckConstraint(
+                    "CK_alarm_schedules_start_brightness_range",
+                    "\"StartBrightnessPercent\" >= 0 AND \"StartBrightnessPercent\" <= 100");
+                tableBuilder.HasCheckConstraint(
+                    "CK_alarm_schedules_target_brightness_range",
+                    "\"TargetBrightnessPercent\" >= 0 AND \"TargetBrightnessPercent\" <= 100");
+            });
         alarm.HasKey(x => x.Id);
 
         alarm.Property(x => x.Name).HasMaxLength(200).IsRequired();
