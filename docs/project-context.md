@@ -2,6 +2,10 @@
 
 Last updated: 2026-02-15
 
+## Concise Summary
+
+LumiRise is a full-stack alarm scheduler: a .NET 10 API schedules and executes wake-up light ramps over MQTT, and an Angular UI provides a weekly drag/drop alarm matrix (create, modify, delete, resize, overlap checks) backed by the alarm REST API.
+
 ## What This Project Is
 
 LumiRise is a .NET 10 backend that schedules wake-up light alarms and controls an MQTT dimmer device.
@@ -16,6 +20,7 @@ Primary responsibilities:
 ## Current Runtime Shape
 
 - API project: `src/LumiRise.Api`
+- UI project: `src/LumiRise.Ui`
 - Unit tests: `src/LumiRise.Tests`
 - Integration tests: `src/LumiRise.IntegrationTests`
 - Mock dimmer app: `src/LumiRise.MockDimmerDevice`
@@ -43,6 +48,7 @@ Boot path at runtime:
 - MQTT connection manager with reconnect loop and queued commands.
 - Dimmer state monitor, command publisher, and interruption detector.
 - Integration tests for alarm API, Hangfire scheduling, and MQTT components.
+- Angular dashboard with cyberpunk-styled weekly calendar (15-minute grid, drag move/resize, hold-to-create, double-click modify, dialog-based delete confirmation).
 - Android alarm-sync client scaffold with:
   - `AlarmSyncManager` for app/system/API synchronization
   - `AlarmSyncWorker` periodic polling (15 minutes) and discrepancy notifications

@@ -48,6 +48,20 @@ services:
     ports:
       - "8080:8080"
 
+  lumi-rise-ui:
+    build:
+      network: host
+      context: src/LumiRise.Ui
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      lumi-rise:
+        condition: service_started
+    environment:
+      BACKEND_URL: http://lumi-rise:8080
+    ports:
+      - "8081:80"
+
   mock-dimmer-device:
     build:
       network: host
