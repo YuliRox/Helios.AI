@@ -69,14 +69,16 @@ class AlarmSyncManager(
         val merged = mergeRemoteAndLocal(remoteAlarms, localAlarms)
         alarmDao.upsertAll(merged)
 
-        val systemSchedule = systemAlarmGateway.getScheduledAlarmEpochMillis().toList()
-        val remoteSchedule = merged
+        val systemScheduleByAlarmId = systemAlarmGateway.getScheduledAlarmEpochMillisByAlarmId()
+        val remoteScheduleByAlarmId = merged
             .asSequence()
             .filter { it.enabled && it.lightAlarmId != null }
-            .map { it.timestamp }
-            .toList()
+            .associate { it.id to it.timestamp }
 
-        val hasDiscrepancy = !areSchedulesAligned(systemSchedule, remoteSchedule)
+        val hasDiscrepancy = !areSchedulesAligned(
+            systemScheduleByAlarmId = systemScheduleByAlarmId,
+            remoteScheduleByAlarmId = remoteScheduleByAlarmId
+        )
 
         if (hasDiscrepancy) {
             when (strategy) {
@@ -94,7 +96,7 @@ class AlarmSyncManager(
                 }
 
                 ConflictResolutionStrategy.SYSTEM_TO_REMOTE -> {
-                    val nextSystemAlarm = systemSchedule.minOrNull()
+                    val nextSystemAlarm = systemScheduleByAlarmId.values.minOrNull()
                     nextSystemAlarm?.let { ts ->
                         val localAlarm = merged
                             .asSequence()
@@ -141,7 +143,12 @@ class AlarmSyncManager(
                     merged
                         .filter { it.lightAlarmId != null && it.enabled }
                         .forEach { alarm ->
-                            val status = if (isAlignedToSchedule(alarm.timestamp, systemSchedule)) {
+                            val status = if (isAlignedToSchedule(
+                                    alarmId = alarm.id,
+                                    timestamp = alarm.timestamp,
+                                    scheduleByAlarmId = systemScheduleByAlarmId
+                                )
+                            ) {
                                 SyncStatus.SYNCED
                             } else {
                                 SyncStatus.OUT_OF_SYNC
@@ -225,27 +232,32 @@ class AlarmSyncManager(
         return abs(left - right) > MAX_ALLOWED_DRIFT_MS
     }
 
-    private fun areSchedulesAligned(systemSchedule: List<Long>, remoteSchedule: List<Long>): Boolean {
-        if (systemSchedule.size != remoteSchedule.size) {
+    private fun areSchedulesAligned(
+        systemScheduleByAlarmId: Map<String, Long>,
+        remoteScheduleByAlarmId: Map<String, Long>
+    ): Boolean {
+        if (systemScheduleByAlarmId.keys != remoteScheduleByAlarmId.keys) {
             return false
         }
 
-        val unmatchedSystem = systemSchedule.toMutableList()
-        for (remoteTs in remoteSchedule) {
-            val matchingIndex = unmatchedSystem.indexOfFirst { systemTs ->
-                abs(systemTs - remoteTs) <= MAX_ALLOWED_DRIFT_MS
-            }
-            if (matchingIndex < 0) {
+        for ((alarmId, remoteTs) in remoteScheduleByAlarmId) {
+            val systemTs = systemScheduleByAlarmId[alarmId] ?: return false
+            if (abs(systemTs - remoteTs) > MAX_ALLOWED_DRIFT_MS) {
                 return false
             }
-            unmatchedSystem.removeAt(matchingIndex)
         }
 
-        return unmatchedSystem.isEmpty()
+        return true
     }
 
-    private fun isAlignedToSchedule(timestamp: Long, schedule: List<Long>): Boolean =
-        schedule.any { systemTs -> abs(systemTs - timestamp) <= MAX_ALLOWED_DRIFT_MS }
+    private fun isAlignedToSchedule(
+        alarmId: String,
+        timestamp: Long,
+        scheduleByAlarmId: Map<String, Long>
+    ): Boolean {
+        val systemTs = scheduleByAlarmId[alarmId] ?: return false
+        return abs(systemTs - timestamp) <= MAX_ALLOWED_DRIFT_MS
+    }
 
     private fun AlarmEntity.toUpsertRequest(): AlarmUpsertRequestDto {
         val storedDays = daysOfWeekCsv

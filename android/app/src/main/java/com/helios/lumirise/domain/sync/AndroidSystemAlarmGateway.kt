@@ -13,32 +13,38 @@ class AndroidSystemAlarmGateway(context: Context) : SystemAlarmGateway {
     private val alarmManager = appContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
     private val storage = appContext.getSharedPreferences(STORAGE_NAME, Context.MODE_PRIVATE)
 
-    override fun getScheduledAlarmEpochMillis(): Set<Long> {
+    override fun getScheduledAlarmEpochMillisByAlarmId(): Map<String, Long> {
         val now = System.currentTimeMillis()
         val active = storage.all
             .asSequence()
             .filter { (key, value) -> key.startsWith(ALARM_KEY_PREFIX) && value is Long }
-            .map { (key, value) -> key to (value as Long) }
+            .map { (key, value) -> key.removePrefix(ALARM_KEY_PREFIX) to (value as Long) }
             .toList()
 
-        val staleKeys = active
+        val staleAlarmIds = active
             .filter { (_, triggerAt) -> triggerAt < now - STALE_TOLERANCE_MS }
-            .map { (key, _) -> key }
-        if (staleKeys.isNotEmpty()) {
+            .map { (alarmId, _) -> alarmId }
+        if (staleAlarmIds.isNotEmpty()) {
             val editor = storage.edit()
-            staleKeys.forEach(editor::remove)
+            staleAlarmIds.forEach { alarmId ->
+                editor.remove(storageKey(alarmId))
+                editor.remove(requestCodeKey(alarmId))
+            }
             editor.apply()
         }
 
         return active
             .asSequence()
-            .map { (_, triggerAt) -> triggerAt }
-            .filter { it >= now - STALE_TOLERANCE_MS }
-            .toSet()
+            .filter { (_, triggerAt) -> triggerAt >= now - STALE_TOLERANCE_MS }
+            .associate { (alarmId, triggerAt) -> alarmId to triggerAt }
+    }
+
+    override fun getScheduledAlarmEpochMillis(): Set<Long> {
+        return getScheduledAlarmEpochMillisByAlarmId().values.toSet()
     }
 
     override fun getNextAlarmEpochMillis(): Long? {
-        return getScheduledAlarmEpochMillis().minOrNull()
+        return getScheduledAlarmEpochMillisByAlarmId().values.minOrNull()
     }
 
     override fun scheduleAlarm(alarm: AlarmEntity) {
