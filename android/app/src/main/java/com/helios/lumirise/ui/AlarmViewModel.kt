@@ -7,12 +7,10 @@ import com.helios.lumirise.data.repository.AlarmRepository
 import com.helios.lumirise.domain.model.Alarm
 import com.helios.lumirise.domain.model.SyncStatus
 import com.helios.lumirise.domain.sync.ConflictResolutionStrategy
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.net.URI
 import java.time.LocalDateTime
@@ -103,6 +101,13 @@ class AlarmViewModel(
         }
     }
 
+    fun refreshHomePresence() {
+        viewModelScope.launch {
+            val presence = repository.refreshHomePresence()
+            _uiState.update { state -> state.copy(isAtHomeNetwork = presence.isAtHomeNetwork) }
+        }
+    }
+
     fun applyRemoteToSystemResolution() {
         syncNow(ConflictResolutionStrategy.REMOTE_TO_SYSTEM)
     }
@@ -163,14 +168,6 @@ class AlarmViewModel(
                         showDiscrepancyWarning = isAtHome && hasSyncProblem(state.alarms)
                     )
                 }
-            }
-        }
-
-        // Poll home presence while the app is open so UI lock/unlock reacts to network changes.
-        viewModelScope.launch {
-            while (isActive) {
-                repository.refreshHomePresence()
-                delay(HOME_PRESENCE_POLL_MS)
             }
         }
     }
@@ -263,9 +260,5 @@ class AlarmViewModel(
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             return AlarmViewModel(repository) as T
         }
-    }
-
-    companion object {
-        private const val HOME_PRESENCE_POLL_MS = 30_000L
     }
 }

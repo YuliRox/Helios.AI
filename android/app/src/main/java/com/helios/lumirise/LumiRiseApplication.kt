@@ -45,7 +45,7 @@ class LumiRiseApplication : Application() {
             return
         }
 
-        val channel = NotificationChannel(
+        val syncChannel = NotificationChannel(
             AlarmSyncWorker.NOTIFICATION_CHANNEL_ID,
             "Alarm Synchronization",
             NotificationManager.IMPORTANCE_HIGH
@@ -53,7 +53,16 @@ class LumiRiseApplication : Application() {
             description = "Warns about mismatch between Android and LumiRise alarms."
         }
 
+        val triggerChannel = NotificationChannel(
+            com.helios.lumirise.workers.SystemAlarmReceiver.NOTIFICATION_CHANNEL_ID,
+            "Alarm Trigger Events",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Shows local alarm trigger notifications."
+        }
+
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.createNotificationChannel(channel)
+        manager.createNotificationChannel(syncChannel)
+        manager.createNotificationChannel(triggerChannel)
     }
 }

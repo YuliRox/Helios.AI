@@ -32,7 +32,7 @@ class SystemAlarmReceiver : BroadcastReceiver() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notification = NotificationCompat.Builder(context, AlarmSyncWorker.NOTIFICATION_CHANNEL_ID)
+        val notification = NotificationCompat.Builder(context, NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle(label)
             .setContentText(context.getString(R.string.app_name))
@@ -46,6 +46,7 @@ class SystemAlarmReceiver : BroadcastReceiver() {
     }
 
     companion object {
+        const val NOTIFICATION_CHANNEL_ID = "alarm_trigger_events"
         const val EXTRA_ALARM_LABEL = "extra_alarm_label"
         private const val TRIGGER_NOTIFICATION_ID = 4002
     }

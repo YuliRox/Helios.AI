@@ -57,9 +57,6 @@ android {
         }
     }
 
-    sourceSets {
-        getByName("main").java.srcDir(layout.buildDirectory.dir("generated/openapi/src/main/kotlin"))
-    }
 }
 
 dependencies {
@@ -122,6 +119,8 @@ openApiGenerate {
     )
 }
 
-tasks.named("preBuild") {
+tasks.register("generateOpenApiClient") {
+    group = "openapi"
+    description = "Generates Kotlin client from samples/swagger.json"
     dependsOn("openApiGenerate")
 }
