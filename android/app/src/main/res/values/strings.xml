@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">LumiRise Sync</string>
+    <string name="sync_warning">Abweichung erkannt: Android-Wecker und Lichtwecker sind nicht synchron.</string>
+    <string name="sync_now">Jetzt synchronisieren</string>
+    <string name="auto_sync">Auto-Sync</string>
+    <string name="new_alarm">Neuer Wecker</string>
+    <string name="save">Speichern</string>
+    <string name="cancel">Abbrechen</string>
+</resources>

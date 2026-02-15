@@ -24,6 +24,7 @@ Primary responsibilities:
 - Unit tests: `src/LumiRise.Tests`
 - Integration tests: `src/LumiRise.IntegrationTests`
 - Mock dimmer app: `src/LumiRise.MockDimmerDevice`
+- Android sync app: `android/` (Jetpack Compose + Room + Retrofit + WorkManager)
 - Local runtime stack: `docker-compose.yml`
 
 Boot path at runtime:
@@ -48,6 +49,14 @@ Boot path at runtime:
 - Dimmer state monitor, command publisher, and interruption detector.
 - Integration tests for alarm API, Hangfire scheduling, and MQTT components.
 - Angular dashboard with cyberpunk-styled weekly calendar (15-minute grid, drag move/resize, hold-to-create, double-click modify, dialog-based delete confirmation).
+- Android alarm-sync client scaffold with:
+  - `AlarmSyncManager` for app/system/API synchronization
+  - `AlarmSyncWorker` periodic polling (15 minutes) and discrepancy notifications
+  - Room cache (`AlarmEntity`) with sync status tracking
+  - Compose MVVM screen with alarm list, warning banner, and create flow
+  - Home-network presence check; light-alarm actions are disabled while away
+  - Return-home decision notification when system alarm changed outside home network
+  - In-app settings for configurable API URI and home SSID with "use current network" shortcut
 
 ## Important Gaps / Caveats
 
