@@ -25,6 +25,8 @@ const SLOTS_PER_DAY = 24 * (60 / SLOT_MINUTES);
 const DAYS_PER_WEEK = 7;
 const TOTAL_WEEK_SLOTS = SLOTS_PER_DAY * DAYS_PER_WEEK;
 const DEFAULT_DURATION_SLOTS = 2;
+const HOLD_TO_CREATE_MS = 1_000;
+const DEFAULT_NEW_ALARM_NAME = 'New alarm';
 const ALARM_COLOR_CLASSES = [
   'alarm-color-0',
   'alarm-color-1',
@@ -36,7 +38,7 @@ const ALARM_COLOR_CLASSES = [
 ] as const;
 
 type ResizeSide = 'left' | 'right';
-type DragMode = 'move' | 'resize-left' | 'resize-right';
+type DragMode = 'move' | 'resize-left' | 'resize-right' | 'create';
 
 interface AlarmSchedule {
   id: string;
@@ -65,12 +67,6 @@ interface AlarmSegmentView {
   durationLabel: string;
 }
 
-interface AlarmActionMenu {
-  alarmId: string;
-  x: number;
-  y: number;
-}
-
 interface EditAlarmDraft {
   id: string;
   name: string;
@@ -89,6 +85,18 @@ interface DragState {
   origin: AlarmSchedule;
   captureTarget: HTMLElement;
   hasMoved: boolean;
+}
+
+interface PendingCreateState {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  lastX: number;
+  lastY: number;
+  dayWidthPx: number;
+  origin: AlarmSchedule;
+  captureTarget: HTMLElement;
+  activationTimer: ReturnType<typeof setTimeout>;
 }
 
 @Component({
@@ -115,9 +123,6 @@ export class AppComponent implements OnInit {
   @ViewChild('weekColumns', { static: false })
   private readonly weekColumnsRef?: ElementRef<HTMLElement>;
 
-  @ViewChild('menuPanel', { static: false, read: ElementRef })
-  private readonly menuPanelRef?: ElementRef<HTMLElement>;
-
   @ViewChild('calendarScroll', { static: false })
   private readonly calendarScrollRef?: ElementRef<HTMLElement>;
 
@@ -135,7 +140,6 @@ export class AppComponent implements OnInit {
   errorMessage = '';
   editErrorMessage = '';
 
-  actionMenu: AlarmActionMenu | null = null;
   editingAlarm: EditAlarmDraft | null = null;
   pendingDeleteAlarm: AlarmResponse | null = null;
   isCreatingAlarm = false;
@@ -147,6 +151,7 @@ export class AppComponent implements OnInit {
 
   private currentSchedulesById = new Map<string, AlarmSchedule>();
   private dragState: DragState | null = null;
+  private pendingCreateState: PendingCreateState | null = null;
   private readonly dayNameToIndex = new Map<string, number>(
     this.weekDays.map((day, index) => [day.toLowerCase(), index])
   );
@@ -181,14 +186,13 @@ export class AppComponent implements OnInit {
     this.isCreatingAlarm = true;
     this.editingAlarm = {
       id: this.generateClientAlarmId(),
-      name: 'New alarm',
+      name: DEFAULT_NEW_ALARM_NAME,
       enabled: true,
       rampMode: this.getDefaultRampMode(),
       time: '07:00',
       selectedDays
     };
 
-    this.actionMenu = null;
     this.editErrorMessage = '';
   }
 
@@ -207,7 +211,6 @@ export class AppComponent implements OnInit {
       return;
     }
 
-    this.actionMenu = null;
     this.previewSchedule = null;
     this.previewInvalid = false;
     this.editErrorMessage = '';
@@ -230,6 +233,112 @@ export class AppComponent implements OnInit {
     event.stopPropagation();
   }
 
+  onSegmentDoubleClick(alarmId: string, event: MouseEvent): void {
+    this.openEditDialogForAlarm(alarmId);
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  onCalendarPointerDown(event: PointerEvent): void {
+    if (event.button !== 0 || this.isLoading || this.isRefreshing || this.dragState || this.pendingCreateState) {
+      return;
+    }
+
+    if (this.editingAlarm || this.pendingDeleteAlarm) {
+      return;
+    }
+
+    const weekColumns = this.weekColumnsRef?.nativeElement;
+    if (!weekColumns) {
+      return;
+    }
+
+    const rect = weekColumns.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return;
+    }
+
+    const dayWidthPx = rect.width / DAYS_PER_WEEK;
+    if (dayWidthPx <= 0) {
+      return;
+    }
+
+    const xInGrid = clamp(event.clientX - rect.left, 0, Math.max(rect.width - 1, 0));
+    const yInGrid = clamp(event.clientY - rect.top, 0, Math.max(rect.height - 1, 0));
+    const startDay = clamp(Math.floor(xInGrid / dayWidthPx), 0, DAYS_PER_WEEK - 1);
+    const startSlot = clamp(Math.floor(yInGrid / this.slotHeightPx), 0, SLOTS_PER_DAY - 1);
+    const rampMode = this.getDefaultRampMode();
+
+    const origin: AlarmSchedule = {
+      id: this.generateClientAlarmId(),
+      name: DEFAULT_NEW_ALARM_NAME,
+      enabled: true,
+      rampMode,
+      days: [startDay],
+      startSlot,
+      durationSlots: this.getDurationSlotsForRampMode(rampMode)
+    };
+
+    const captureTarget = event.currentTarget as HTMLElement;
+    captureTarget.setPointerCapture(event.pointerId);
+
+    const activationTimer = setTimeout(() => {
+      if (!this.pendingCreateState || this.pendingCreateState.pointerId !== event.pointerId) {
+        return;
+      }
+
+      const pending = this.pendingCreateState;
+      this.pendingCreateState = null;
+
+      this.dragState = {
+        pointerId: pending.pointerId,
+        mode: 'create',
+        startX: pending.startX,
+        startY: pending.startY,
+        dayWidthPx: pending.dayWidthPx,
+        origin: pending.origin,
+        captureTarget: pending.captureTarget,
+        hasMoved: false
+      };
+
+      this.previewSchedule = pending.origin;
+      this.previewInvalid = !this.isSchedulePlacementValid(pending.origin);
+      this.rebuildCalendarView();
+
+      const deltaX = pending.lastX - pending.startX;
+      const deltaY = pending.lastY - pending.startY;
+      if (Math.abs(deltaX) < 4 && Math.abs(deltaY) < 4) {
+        return;
+      }
+
+      const dayDelta = Math.round(deltaX / pending.dayWidthPx);
+      const slotDelta = Math.round(deltaY / this.slotHeightPx);
+      const candidate = this.shiftSchedule(pending.origin, dayDelta, slotDelta);
+
+      this.dragState.hasMoved = true;
+      this.previewSchedule = candidate;
+      this.previewInvalid = !this.isSchedulePlacementValid(candidate);
+      this.rebuildCalendarView();
+    }, HOLD_TO_CREATE_MS);
+
+    this.pendingCreateState = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      dayWidthPx,
+      origin,
+      captureTarget,
+      activationTimer
+    };
+
+    this.editErrorMessage = '';
+    this.errorMessage = '';
+
+    event.preventDefault();
+  }
+
   onResizePointerDown(event: PointerEvent, segment: AlarmSegmentView, side: ResizeSide): void {
     if (event.button !== 0 || this.isAlarmBusy(segment.alarmId)) {
       return;
@@ -245,7 +354,6 @@ export class AppComponent implements OnInit {
       return;
     }
 
-    this.actionMenu = null;
     this.previewSchedule = null;
     this.previewInvalid = false;
     this.editErrorMessage = '';
@@ -268,15 +376,27 @@ export class AppComponent implements OnInit {
     event.stopPropagation();
   }
 
-  onEditAlarmFromMenu(alarmId?: string): void {
-    const targetAlarmId = alarmId ?? this.actionMenu?.alarmId;
-    if (!targetAlarmId) {
+  onDeleteFromEditDialog(): void {
+    if (this.isCreatingAlarm || !this.editingAlarm) {
       return;
     }
 
-    const schedule = this.currentSchedulesById.get(targetAlarmId);
+    const alarm = this.alarms.find((entry) => entry.id === this.editingAlarm?.id);
+    if (!alarm) {
+      return;
+    }
+
+    this.pendingDeleteAlarm = alarm;
+    this.closeEditDialog();
+  }
+
+  private openEditDialogForAlarm(alarmId: string): void {
+    if (this.isLoading || this.isRefreshing) {
+      return;
+    }
+
+    const schedule = this.currentSchedulesById.get(alarmId);
     if (!schedule) {
-      this.actionMenu = null;
       return;
     }
 
@@ -291,23 +411,6 @@ export class AppComponent implements OnInit {
 
     this.isCreatingAlarm = false;
     this.editErrorMessage = '';
-    this.actionMenu = null;
-  }
-
-  onDeleteAlarmFromMenu(alarmId?: string): void {
-    const targetAlarmId = alarmId ?? this.actionMenu?.alarmId;
-    if (!targetAlarmId) {
-      return;
-    }
-
-    const alarm = this.alarms.find((entry) => entry.id === targetAlarmId);
-    if (!alarm) {
-      this.actionMenu = null;
-      return;
-    }
-
-    this.pendingDeleteAlarm = alarm;
-    this.actionMenu = null;
   }
 
   confirmDeleteAlarm(): void {
@@ -341,10 +444,6 @@ export class AppComponent implements OnInit {
 
   cancelDeleteAlarm(): void {
     this.pendingDeleteAlarm = null;
-  }
-
-  closeMenu(): void {
-    this.actionMenu = null;
   }
 
   closeEditDialog(): void {
@@ -441,6 +540,13 @@ export class AppComponent implements OnInit {
 
   @HostListener('window:pointermove', ['$event'])
   onWindowPointerMove(event: PointerEvent): void {
+    if (this.pendingCreateState && event.pointerId === this.pendingCreateState.pointerId) {
+      this.pendingCreateState.lastX = event.clientX;
+      this.pendingCreateState.lastY = event.clientY;
+      event.preventDefault();
+      return;
+    }
+
     if (!this.dragState || event.pointerId !== this.dragState.pointerId) {
       return;
     }
@@ -456,7 +562,7 @@ export class AppComponent implements OnInit {
 
     let candidate = this.dragState.origin;
 
-    if (this.dragState.mode === 'move') {
+    if (this.dragState.mode === 'move' || this.dragState.mode === 'create') {
       const dayDelta = Math.round(deltaX / this.dragState.dayWidthPx);
       const slotDelta = Math.round(deltaY / this.slotHeightPx);
       candidate = this.shiftSchedule(this.dragState.origin, dayDelta, slotDelta);
@@ -475,12 +581,41 @@ export class AppComponent implements OnInit {
 
   @HostListener('window:pointerup', ['$event'])
   onWindowPointerUp(event: PointerEvent): void {
+    if (this.pendingCreateState && event.pointerId === this.pendingCreateState.pointerId) {
+      this.clearPendingCreateState(true);
+      return;
+    }
+
     if (!this.dragState || event.pointerId !== this.dragState.pointerId) {
       return;
     }
 
+    if (this.dragState.mode === 'create') {
+      const candidate = this.previewSchedule ?? this.dragState.origin;
+      const isValid = !this.previewInvalid && this.isSchedulePlacementValid(candidate);
+
+      this.clearDragState();
+
+      if (!isValid) {
+        this.errorMessage = 'This change would overlap another alarm.';
+        return;
+      }
+
+      this.isCreatingAlarm = true;
+      this.editingAlarm = {
+        id: candidate.id,
+        name: candidate.name,
+        enabled: candidate.enabled,
+        rampMode: candidate.rampMode,
+        time: slotToTime(candidate.startSlot),
+        selectedDays: this.ensureAtLeastOneSelectedDay(this.weekDays.map((_day, dayIndex) => candidate.days.includes(dayIndex)))
+      };
+      this.editErrorMessage = '';
+
+      return;
+    }
+
     if (!this.dragState.hasMoved) {
-      this.openMenu(this.dragState.origin.id, event.clientX, event.clientY);
       this.clearDragState();
       return;
     }
@@ -500,26 +635,16 @@ export class AppComponent implements OnInit {
 
   @HostListener('window:pointercancel', ['$event'])
   onWindowPointerCancel(event: PointerEvent): void {
+    if (this.pendingCreateState && event.pointerId === this.pendingCreateState.pointerId) {
+      this.clearPendingCreateState(true);
+      return;
+    }
+
     if (!this.dragState || event.pointerId !== this.dragState.pointerId) {
       return;
     }
 
     this.clearDragState();
-  }
-
-  @HostListener('document:pointerdown', ['$event'])
-  onDocumentPointerDown(event: PointerEvent): void {
-    if (!this.actionMenu) {
-      return;
-    }
-
-    const target = event.target as Node | null;
-    const menuElement = this.menuPanelRef?.nativeElement;
-    if (menuElement && target && menuElement.contains(target)) {
-      return;
-    }
-
-    this.actionMenu = null;
   }
 
   private loadDashboard(): void {
@@ -618,14 +743,6 @@ export class AppComponent implements OnInit {
       });
   }
 
-  private openMenu(alarmId: string, x: number, y: number): void {
-    this.actionMenu = {
-      alarmId,
-      x: Math.min(x + 10, window.innerWidth - 220),
-      y: Math.min(y + 10, window.innerHeight - 140)
-    };
-  }
-
   private clearDragState(): void {
     if (this.dragState) {
       if (this.dragState.captureTarget.hasPointerCapture(this.dragState.pointerId)) {
@@ -637,6 +754,20 @@ export class AppComponent implements OnInit {
     this.previewSchedule = null;
     this.previewInvalid = false;
     this.rebuildCalendarView();
+  }
+
+  private clearPendingCreateState(releaseCapture: boolean): void {
+    if (!this.pendingCreateState) {
+      return;
+    }
+
+    clearTimeout(this.pendingCreateState.activationTimer);
+
+    if (releaseCapture && this.pendingCreateState.captureTarget.hasPointerCapture(this.pendingCreateState.pointerId)) {
+      this.pendingCreateState.captureTarget.releasePointerCapture(this.pendingCreateState.pointerId);
+    }
+
+    this.pendingCreateState = null;
   }
 
   private recomputeSchedules(): void {
@@ -905,15 +1036,6 @@ export class AppComponent implements OnInit {
 
   isAlarmBusy(alarmId: string): boolean {
     return this.isRefreshing || this.isLoading || this.dragState?.origin.id === alarmId;
-  }
-
-  get alarmNameFromMenu(): string {
-    if (!this.actionMenu) {
-      return '';
-    }
-
-    const schedule = this.currentSchedulesById.get(this.actionMenu.alarmId);
-    return schedule?.name || 'Alarm';
   }
 
   get availableRampModes(): string[] {

@@ -42,7 +42,7 @@
             <span class="time-axis-end-label">00:00</span>
           </div>
 
-          <div class="week-columns" #weekColumns [style.height.px]="gridHeightPx">
+          <div class="week-columns" #weekColumns [style.height.px]="gridHeightPx" (pointerdown)="onCalendarPointerDown($event)">
             <div class="day-column" *ngFor="let day of weekDays; trackBy: trackByDay"></div>
 
             <div class="segment-layer">
@@ -52,12 +52,12 @@
                 [ngClass]="segment.colorClass"
                 [class.disabled]="!segment.enabled"
                 [class.invalid-preview]="previewInvalid && previewSchedule?.id === segment.alarmId"
-                [class.menu-active]="actionMenu?.alarmId === segment.alarmId"
                 [style.top.px]="segment.topPx"
                 [style.height.px]="segment.heightPx"
                 [style.left]="segment.leftCss"
                 [style.width]="segment.widthCss"
-                (pointerdown)="onSegmentPointerDown($event, segment)">
+                (pointerdown)="onSegmentPointerDown($event, segment)"
+                (dblclick)="onSegmentDoubleClick(segment.alarmId, $event)">
                 <div class="alarm-segment-content">
                   <ng-container *ngIf="segment.isStart; else continuation">
                     <strong>{{ segment.name }}</strong>
@@ -87,12 +87,6 @@
       </div>
     </mat-card>
   </section>
-
-  <mat-card class="alarm-menu" #menuPanel *ngIf="actionMenu as menu" [style.left.px]="menu.x" [style.top.px]="menu.y">
-    <p class="menu-title">{{ alarmNameFromMenu }}</p>
-    <button mat-stroked-button class="cp-button cp-button-secondary" type="button" (click)="onEditAlarmFromMenu(menu.alarmId)">Modify</button>
-    <button mat-flat-button class="cp-button cp-button-danger" type="button" (click)="onDeleteAlarmFromMenu(menu.alarmId)">Delete</button>
-  </mat-card>
 
   <div class="dialog-backdrop" *ngIf="editingAlarm as edit">
     <mat-card class="dialog">
@@ -149,6 +143,15 @@
           </mat-slide-toggle>
 
           <div class="dialog-actions-right">
+            <button
+              *ngIf="!isCreatingAlarm"
+              mat-flat-button
+              class="cp-button cp-button-danger"
+              type="button"
+              (click)="onDeleteFromEditDialog()"
+              [disabled]="isRefreshing">
+              Delete
+            </button>
             <button mat-stroked-button class="cp-button cp-button-secondary" type="button" (click)="closeEditDialog()" [disabled]="isRefreshing">
               Cancel
             </button>

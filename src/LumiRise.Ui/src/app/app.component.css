@@ -36,6 +36,7 @@
   content: '';
   position: absolute;
   inset: 0;
+  z-index: 0;
   pointer-events: none;
   opacity: 0.34;
   background:
@@ -56,9 +57,41 @@
     );
 }
 
+.dashboard::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.34;
+  mix-blend-mode: screen;
+  filter: saturate(150%);
+  background:
+    repeating-linear-gradient(
+      90deg,
+      transparent 0,
+      transparent 112px,
+      rgba(23, 230, 255, 0.14) 112px,
+      rgba(23, 230, 255, 0.14) 114px
+    ),
+    repeating-linear-gradient(
+      180deg,
+      transparent 0,
+      transparent 96px,
+      rgba(255, 57, 208, 0.12) 96px,
+      rgba(255, 57, 208, 0.12) 98px
+    ),
+    linear-gradient(115deg, rgba(23, 230, 255, 0.18), transparent 24%, rgba(255, 57, 208, 0.18) 46%, transparent 70%),
+    radial-gradient(circle at 26% 30%, rgba(23, 230, 255, 0.17), transparent 34%),
+    radial-gradient(circle at 74% 64%, rgba(255, 57, 208, 0.16), transparent 38%);
+  transform: translate3d(-7px, 0, 0);
+  clip-path: inset(26% 0 24% 0);
+}
+
 .chrome-grid {
   position: absolute;
   inset: 0;
+  z-index: 1;
   pointer-events: none;
   opacity: 0.3;
   background:
@@ -68,6 +101,7 @@
 
 .dashboard-board {
   position: relative;
+  z-index: 2;
   width: min(1500px, 100%);
   margin: 0 auto;
   padding: 12px;
@@ -248,6 +282,7 @@
   inset: 6px;
   pointer-events: none;
   border: 1px solid rgba(255, 57, 208, 0.4);
+  z-index: 1;
 }
 
 .calendar-scroll-container {
@@ -255,6 +290,7 @@
   overflow: auto;
   max-height: 78vh;
   min-height: 390px;
+  z-index: 2;
 }
 
 .calendar-header-row {
@@ -491,11 +527,6 @@
   cursor: grabbing;
 }
 
-.alarm-segment.menu-active {
-  outline: 2px solid #ffd451;
-  outline-offset: 1px;
-}
-
 .alarm-segment.invalid-preview {
   --alarm-start: rgba(88, 20, 68, 0.95);
   --alarm-end: rgba(145, 25, 50, 0.93);
@@ -568,31 +599,6 @@
       transparent 5px
     ),
     linear-gradient(270deg, rgba(28, 242, 255, 0.5), rgba(255, 97, 219, 0.18));
-}
-
-.alarm-menu {
-  position: fixed;
-  z-index: 20;
-  min-width: 220px;
-  padding: 12px;
-  display: grid;
-  gap: 8px;
-  border: 1px solid rgba(23, 230, 255, 0.58);
-  background: rgba(9, 16, 42, 0.94);
-  box-shadow:
-    0 0 0 1px rgba(255, 57, 208, 0.26) inset,
-    0 0 16px rgba(23, 230, 255, 0.22);
-}
-
-.menu-title {
-  margin: 0;
-  font-size: 0.86rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .cp-button.mat-mdc-button-base {

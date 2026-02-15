@@ -20,6 +20,20 @@ Read in this order, and stop once you have enough context for the task.
 
 If task scope is clear after these files, do not read more.
 
+## UI Quick Lookup
+
+For Angular dashboard and styling tasks, use:
+
+1. `src/LumiRise.Ui/AGENTS.md` - UI-specific startup contract.
+2. `src/LumiRise.Ui/src/app/app.component.ts` - calendar behavior, drag/create/edit/delete flows.
+3. `src/LumiRise.Ui/src/app/app.component.html` - dashboard layout and dialog markup.
+4. `src/LumiRise.Ui/src/app/app.component.css` - cyberpunk theme and control styles.
+5. `src/LumiRise.Ui/src/app/services/alarm-api.service.ts` - REST calls.
+6. `src/LumiRise.Ui/src/app/models/api.models.ts` - API payload contracts.
+7. `src/LumiRise.Ui/proxy.conf.json` - local dev reverse proxy to API.
+8. `src/LumiRise.Ui/nginx.conf` - container runtime reverse proxy.
+9. `src/LumiRise.Ui/Dockerfile` - UI container build.
+
 ## Task-Specific Read Paths
 
 For scheduling and Hangfire behavior:
@@ -58,9 +72,12 @@ Run from repo root unless noted.
 - Build integration tests only: `dotnet build src/LumiRise.IntegrationTests/LumiRise.IntegrationTests.csproj --nologo -v q`
 - Build full solution (stable): `dotnet build src/LumiRise.sln --nologo -m:1 -v q`
 - Run unit tests: `dotnet test src/LumiRise.Tests/LumiRise.Tests.csproj --nologo -m:1 -nodeReuse:false -v q`
+- Start UI dev server: `cd src/LumiRise.Ui && npm start`
+- Build UI: `cd src/LumiRise.Ui && npm run build`
 - Start local stack: `docker compose up -d`
 - API Swagger: `http://localhost:8080/swagger`
 - Hangfire dashboard: `http://localhost:8080/hangfire`
+- UI dashboard (nginx): `http://localhost:8081`
 
 ## Notes
 

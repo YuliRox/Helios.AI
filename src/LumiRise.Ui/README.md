@@ -29,7 +29,8 @@ For local Angular CLI development, requests to `/api`, `/swagger`, and `/hangfir
 are proxied to `http://localhost:8080` via `proxy.conf.json`.
 
 For Docker Compose runtime, the Nginx-hosted UI is available at `http://localhost:8081`
-and reverse-proxies API routes to the `lumi-rise` container.
+and reverse-proxies API routes to the backend configured through `BACKEND_URL`
+(in compose this is `http://lumi-rise:8080`).
 
 You can override it before app bootstrap by setting:
 
