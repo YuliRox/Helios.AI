@@ -2,7 +2,7 @@
 
 @font-face {
   font-family: 'Deltha';
-  src: url('./app/Deltha.otf') format('opentype');
+  src: url('/assets/fonts/Deltha.otf') format('opentype');
   font-style: normal;
   font-weight: 400;
   font-display: swap;

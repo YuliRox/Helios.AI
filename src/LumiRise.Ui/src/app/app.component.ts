@@ -96,7 +96,7 @@ interface PendingCreateState {
   dayWidthPx: number;
   origin: AlarmSchedule;
   captureTarget: HTMLElement;
-  activationTimer: ReturnType<typeof setTimeout>;
+  activationTimer: number;
 }
 
 @Component({
@@ -282,7 +282,7 @@ export class AppComponent implements OnInit {
     const captureTarget = event.currentTarget as HTMLElement;
     captureTarget.setPointerCapture(event.pointerId);
 
-    const activationTimer = setTimeout(() => {
+    const activationTimer = window.setTimeout(() => {
       if (!this.pendingCreateState || this.pendingCreateState.pointerId !== event.pointerId) {
         return;
       }
@@ -761,7 +761,7 @@ export class AppComponent implements OnInit {
       return;
     }
 
-    clearTimeout(this.pendingCreateState.activationTimer);
+    window.clearTimeout(this.pendingCreateState.activationTimer);
 
     if (releaseCapture && this.pendingCreateState.captureTarget.hasPointerCapture(this.pendingCreateState.pointerId)) {
       this.pendingCreateState.captureTarget.releasePointerCapture(this.pendingCreateState.pointerId);
