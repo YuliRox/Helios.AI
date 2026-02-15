@@ -52,8 +52,8 @@ namespace LumiRise.Api.Data.Migrations
                     20,
                     100,
                     1800,
-                    DateTime.UtcNow,
-                    DateTime.UtcNow
+                    new DateTime(2026, 2, 15, 12, 22, 0, DateTimeKind.Utc),
+                    new DateTime(2026, 2, 15, 12, 22, 0, DateTimeKind.Utc)
                 });
 
             migrationBuilder.AddColumn<Guid>(
