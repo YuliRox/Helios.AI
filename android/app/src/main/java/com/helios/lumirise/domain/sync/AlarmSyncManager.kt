@@ -89,19 +89,36 @@ class AlarmSyncManager(
 
                 ConflictResolutionStrategy.SYSTEM_TO_REMOTE -> {
                     nextSystemAlarm?.let { ts ->
-                        val localAlarm = merged.minByOrNull { abs(it.timestamp - ts) }
+                        val localAlarm = merged
+                            .asSequence()
+                            .filter { it.lightAlarmId == null }
+                            .minByOrNull { abs(it.timestamp - ts) }
                         val label = localAlarm?.label ?: "Android Alarm"
+                        val localEntity = localAlarm?.copy(
+                            timestamp = ts,
+                            enabled = true,
+                            label = label,
+                            syncStatus = SyncStatus.LOCAL_ONLY
+                        ) ?: AlarmEntity(
+                            id = UUID.randomUUID().toString(),
+                            lightAlarmId = null,
+                            timestamp = ts,
+                            enabled = true,
+                            label = label,
+                            syncStatus = SyncStatus.LOCAL_ONLY
+                        )
+
                         runCatching {
-                            api.createAlarm(
-                                AlarmEntity(
-                                    id = UUID.randomUUID().toString(),
-                                    lightAlarmId = null,
-                                    timestamp = ts,
-                                    enabled = true,
-                                    label = label,
-                                    syncStatus = SyncStatus.LOCAL_ONLY
-                                ).toUpsertRequest()
+                            api.createAlarm(localEntity.toUpsertRequest())
+                        }.onSuccess { remoteAlarm ->
+                            alarmDao.upsert(
+                                localEntity.copy(
+                                    lightAlarmId = remoteAlarm.id,
+                                    syncStatus = SyncStatus.SYNCED
+                                )
                             )
+                        }.onFailure {
+                            alarmDao.upsert(localEntity.copy(syncStatus = SyncStatus.ERROR))
                         }
                     }
                 }
@@ -191,14 +208,22 @@ class AlarmSyncManager(
         val now = LocalDateTime.now()
 
         val candidates = days.map { day ->
-            now.with(TemporalAdjusters.nextOrSame(day)).withHour(localTime.hour)
+            val candidate = now.with(TemporalAdjusters.nextOrSame(day)).withHour(localTime.hour)
                 .withMinute(localTime.minute)
                 .withSecond(0)
                 .withNano(0)
+
+            if (candidate.isAfter(now)) {
+                candidate
+            } else {
+                now.with(TemporalAdjusters.next(day)).withHour(localTime.hour)
+                    .withMinute(localTime.minute)
+                    .withSecond(0)
+                    .withNano(0)
+            }
         }
 
         val chosen = candidates
-            .filter { it.isAfter(now) }
             .minOrNull()
             ?: now.plusDays(1).withHour(localTime.hour).withMinute(localTime.minute).withSecond(0).withNano(0)
 

@@ -31,8 +31,9 @@ class ApiReachabilityHomeNetworkChecker(
             return@withContext null
         }
 
-        val transportSsid = (capabilities.transportInfo as? WifiInfo)?.ssid
-        val rawSsid = transportSsid ?: legacyWifiSsid() ?: return@withContext null
+        val transportSsid = runCatching { (capabilities.transportInfo as? WifiInfo)?.ssid }
+            .getOrNull()
+        val rawSsid = transportSsid ?: runCatching { legacyWifiSsid() }.getOrNull() ?: return@withContext null
         normalizeSsid(rawSsid)
     }
 
