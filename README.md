@@ -52,3 +52,7 @@ Notes:
 
 - The UI container reads `BACKEND_URL` at container startup (`docker-compose.yml` defaults it to `http://lumi-rise:8080`).
 - API uses Postgres (`postgres-db`) and MQTT broker (`mqtt-broker`) from the same Compose network.
+
+## Cyberpunk inspired Web-UI
+
+![alt text](web-ui.png)
