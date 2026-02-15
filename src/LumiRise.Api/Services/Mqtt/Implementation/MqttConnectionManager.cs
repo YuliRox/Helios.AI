@@ -516,6 +516,7 @@ public class MqttConnectionManager : IMqttConnectionManager
     {
         _disconnectRequested = true;
         ClearQueuedCommands("explicit disconnect");
+        await StopConnectionMonitorAsync();
 
         await _connectionLock.WaitAsync(ct);
         try
