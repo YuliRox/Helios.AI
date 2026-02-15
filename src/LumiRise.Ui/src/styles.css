@@ -1,0 +1,200 @@
+@import '@angular/material/prebuilt-themes/pink-bluegrey.css';
+
+@font-face {
+  font-family: 'Deltha';
+  src: url('./app/Deltha.otf') format('opentype');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+:root {
+  --cp-material-font: 'Deltha', 'Bahnschrift', 'Arial Narrow', 'Segoe UI', sans-serif;
+  --cp-purple: #ff58dc;
+  --cp-cyan: #17e6ff;
+  --cp-green: #41ff74;
+  --cp-red: #ff3b5f;
+
+  --mdc-typography-body1-font-family: var(--cp-material-font);
+  --mdc-typography-subtitle1-font-family: var(--cp-material-font);
+  --mdc-typography-button-font-family: var(--cp-material-font);
+  --mdc-typography-caption-font-family: var(--cp-material-font);
+}
+
+* {
+  box-sizing: border-box;
+  font-family: var(--cp-material-font);
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  background: #060917;
+  color: #d8eeff;
+}
+
+.mat-mdc-button-base,
+.mat-mdc-card,
+.mat-mdc-form-field,
+.mat-mdc-input-element,
+.mat-mdc-select,
+.mat-mdc-select-trigger,
+.mat-mdc-select-value,
+.mat-mdc-select-value-text,
+.mat-mdc-select-min-line,
+.mat-mdc-option,
+.mat-mdc-option .mdc-list-item__primary-text,
+.mat-mdc-slide-toggle,
+.mat-mdc-slide-toggle .mdc-label,
+.mat-mdc-checkbox,
+.mat-mdc-checkbox label,
+.mat-mdc-dialog-container,
+.mdc-floating-label,
+.mdc-text-field__input {
+  font-family: var(--cp-material-font) !important;
+}
+
+.mat-mdc-card,
+.mat-mdc-button-base,
+.mat-mdc-form-field,
+.mat-mdc-select-panel,
+.mat-mdc-option,
+.mat-mdc-menu-panel {
+  border-radius: 0 !important;
+}
+
+.cp-select-panel.mat-mdc-select-panel {
+  background: linear-gradient(165deg, rgba(8, 16, 46, 0.98), rgba(5, 11, 33, 0.98)) !important;
+  border: 1px solid rgba(255, 57, 208, 0.68);
+  box-shadow:
+    0 0 0 1px rgba(255, 57, 208, 0.26) inset,
+    0 0 20px rgba(255, 57, 208, 0.28);
+}
+
+.cp-select-panel .mat-mdc-option {
+  min-height: 38px;
+}
+
+.cp-select-panel .mat-mdc-option .mdc-list-item__primary-text {
+  color: #d8f2ff;
+  font-family: var(--cp-material-font) !important;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cp-select-panel .mat-mdc-option.mdc-list-item--selected {
+  background: rgba(255, 57, 208, 0.2);
+}
+
+.cp-select-panel .mat-mdc-option.mdc-list-item--selected .mdc-list-item__primary-text {
+  color: #f2fcff;
+}
+
+.dialog .mdc-notched-outline__leading,
+.dialog .mdc-notched-outline__notch,
+.dialog .mdc-notched-outline__trailing {
+  border-color: rgba(255, 57, 208, 0.58) !important;
+  border-radius: 0 !important;
+}
+
+.dialog .mdc-text-field:hover .mdc-notched-outline__leading,
+.dialog .mdc-text-field:hover .mdc-notched-outline__notch,
+.dialog .mdc-text-field:hover .mdc-notched-outline__trailing {
+  border-color: rgba(255, 57, 208, 0.8) !important;
+}
+
+.dialog .mdc-text-field--focused .mdc-notched-outline__leading,
+.dialog .mdc-text-field--focused .mdc-notched-outline__notch,
+.dialog .mdc-text-field--focused .mdc-notched-outline__trailing {
+  border-color: var(--cp-purple) !important;
+}
+
+.enabled-toggle.mat-mdc-slide-toggle {
+  width: fit-content;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.enabled-toggle .mdc-label {
+  font-family: var(--cp-material-font) !important;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.enabled-toggle.enabled-on .mdc-label {
+  color: #98ffb2;
+  text-shadow: 0 0 9px rgba(65, 255, 116, 0.5);
+}
+
+.enabled-toggle.enabled-off .mdc-label {
+  color: #ff9db0;
+  text-shadow: 0 0 9px rgba(255, 59, 95, 0.46);
+}
+
+.enabled-toggle .mdc-switch__track,
+.enabled-toggle .mdc-switch__handle,
+.enabled-toggle .mdc-switch__handle-track {
+  border-radius: 0 !important;
+}
+
+.enabled-toggle .mdc-switch__shadow,
+.enabled-toggle .mdc-switch__handle .mdc-elevation-overlay {
+  box-shadow: none !important;
+  opacity: 0 !important;
+}
+
+.enabled-toggle .mdc-switch__track {
+  border: 1px solid rgba(255, 255, 255, 0.24);
+}
+
+.enabled-toggle .mdc-switch--selected .mdc-switch__track {
+  background-color: #0d3f1f !important;
+  border-color: rgba(86, 255, 142, 0.64) !important;
+}
+
+.enabled-toggle .mdc-switch:not(.mdc-switch--selected) .mdc-switch__track {
+  background-color: #4d1020 !important;
+  border-color: rgba(255, 106, 138, 0.64) !important;
+}
+
+.enabled-toggle .mdc-switch--selected .mdc-switch__handle,
+.enabled-toggle .mdc-switch--selected .mdc-switch__handle::before,
+.enabled-toggle .mdc-switch--selected .mdc-switch__handle::after {
+  background-color: var(--cp-green) !important;
+  border-color: var(--cp-green) !important;
+}
+
+.enabled-toggle .mdc-switch:not(.mdc-switch--selected) .mdc-switch__handle,
+.enabled-toggle .mdc-switch:not(.mdc-switch--selected) .mdc-switch__handle::before,
+.enabled-toggle .mdc-switch:not(.mdc-switch--selected) .mdc-switch__handle::after {
+  background-color: var(--cp-red) !important;
+  border-color: var(--cp-red) !important;
+}
+
+.enabled-toggle .mdc-switch__icon {
+  opacity: 1 !important;
+}
+
+.enabled-toggle .mdc-switch--selected .mdc-switch__icon--on {
+  color: #04210c !important;
+  fill: #04210c !important;
+  opacity: 1 !important;
+}
+
+.enabled-toggle .mdc-switch--selected .mdc-switch__icon--off {
+  opacity: 0 !important;
+}
+
+.enabled-toggle .mdc-switch:not(.mdc-switch--selected) .mdc-switch__icon--off {
+  color: #fff7fa !important;
+  fill: #fff7fa !important;
+  opacity: 1 !important;
+}
+
+.enabled-toggle .mdc-switch:not(.mdc-switch--selected) .mdc-switch__icon--on {
+  opacity: 0 !important;
+}

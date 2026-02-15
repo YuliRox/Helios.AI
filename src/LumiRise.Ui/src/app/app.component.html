@@ -1,0 +1,167 @@
+<div class="dashboard" [style.--slot-height.px]="slotHeightPx">
+  <div class="chrome-grid"></div>
+
+  <section class="dashboard-board">
+    <header class="cp-toolbar">
+      <div class="toolbar-copy">
+        <h1>Weekly alarm matrix</h1>
+      </div>
+      <span class="toolbar-spacer"></span>
+      <div class="header-actions">
+        <button class="cp-chip cp-chip-cyan" type="button" (click)="onCreateAlarm()" [disabled]="isLoading || isRefreshing">
+          New Alarm
+        </button>
+        <button class="cp-chip cp-chip-pink" type="button" (click)="reload()" [disabled]="isLoading || isRefreshing">
+          Reload
+        </button>
+        <button class="cp-chip cp-chip-cyan cp-chip-dim" type="button" disabled>
+          Monitor
+        </button>
+      </div>
+    </header>
+
+    <mat-progress-bar *ngIf="isLoading" mode="indeterminate" class="cp-progress"></mat-progress-bar>
+    <mat-progress-bar *ngIf="isRefreshing && !isLoading" mode="indeterminate" class="cp-progress cp-progress-refresh"></mat-progress-bar>
+
+    <mat-card class="status-card error-card" *ngIf="errorMessage">
+      {{ errorMessage }}
+    </mat-card>
+
+    <mat-card class="calendar-card" *ngIf="!isLoading">
+      <div class="calendar-scroll-container">
+        <div class="calendar-header-row">
+          <div class="time-header-cell">Time</div>
+          <div class="header-days">
+            <div class="day-header-cell" *ngFor="let day of weekDays; trackBy: trackByDay">{{ day }}</div>
+          </div>
+        </div>
+
+        <div class="calendar-body-row">
+          <div class="time-axis" [style.height.px]="gridHeightPx">
+            <div class="time-slot-label" *ngFor="let label of timeAxisLabels; let index = index">
+              <span *ngIf="label">{{ label }}</span>
+              <div class="time-divider" [class.hour]="(index + 1) % 4 === 0"></div>
+            </div>
+            <span class="time-axis-end-label">00:00</span>
+          </div>
+
+          <div class="week-columns" #weekColumns [style.height.px]="gridHeightPx">
+            <div class="day-column" *ngFor="let day of weekDays; trackBy: trackByDay"></div>
+
+            <div class="segment-layer">
+              <article
+                class="alarm-segment"
+                *ngFor="let segment of calendarSegments; trackBy: trackBySegment"
+                [ngClass]="segment.colorClass"
+                [class.disabled]="!segment.enabled"
+                [class.invalid-preview]="previewInvalid && previewSchedule?.id === segment.alarmId"
+                [class.menu-active]="actionMenu?.alarmId === segment.alarmId"
+                [style.top.px]="segment.topPx"
+                [style.height.px]="segment.heightPx"
+                [style.left]="segment.leftCss"
+                [style.width]="segment.widthCss"
+                (pointerdown)="onSegmentPointerDown($event, segment)">
+                <div class="alarm-segment-content">
+                  <ng-container *ngIf="segment.isStart; else continuation">
+                    <strong>{{ segment.name }}</strong>
+                    <span>{{ segment.timeLabel }} ({{ segment.durationLabel }})</span>
+                  </ng-container>
+                  <ng-template #continuation>
+                    <span>Continues</span>
+                  </ng-template>
+                </div>
+
+                <button
+                  *ngIf="segment.showResize"
+                  class="resize-handle left"
+                  type="button"
+                  aria-label="Expand to previous day"
+                  (pointerdown)="onResizePointerDown($event, segment, 'left')"></button>
+                <button
+                  *ngIf="segment.showResize"
+                  class="resize-handle right"
+                  type="button"
+                  aria-label="Expand to next day"
+                  (pointerdown)="onResizePointerDown($event, segment, 'right')"></button>
+              </article>
+            </div>
+          </div>
+        </div>
+      </div>
+    </mat-card>
+  </section>
+
+  <mat-card class="alarm-menu" #menuPanel *ngIf="actionMenu as menu" [style.left.px]="menu.x" [style.top.px]="menu.y">
+    <p class="menu-title">{{ alarmNameFromMenu }}</p>
+    <button mat-stroked-button class="cp-button cp-button-secondary" type="button" (click)="onEditAlarmFromMenu()">Modify</button>
+    <button mat-flat-button class="cp-button cp-button-danger" type="button" (click)="onDeleteAlarmFromMenu()">Delete</button>
+    <button mat-stroked-button class="cp-button cp-button-secondary" type="button" (click)="closeMenu()">Close</button>
+  </mat-card>
+
+  <div class="dialog-backdrop" *ngIf="editingAlarm as edit">
+    <mat-card class="dialog">
+      <h2>{{ isCreatingAlarm ? 'Create Alarm' : 'Modify Alarm' }}</h2>
+      <mat-divider></mat-divider>
+
+      <form class="dialog-form" (ngSubmit)="saveEdit()">
+        <mat-form-field appearance="outline">
+          <mat-label>Name</mat-label>
+          <input matInput type="text" name="alarm-name" [(ngModel)]="edit.name" maxlength="200" required />
+        </mat-form-field>
+
+        <mat-form-field appearance="outline">
+          <mat-label>Time</mat-label>
+          <input matInput type="time" name="alarm-time" [(ngModel)]="edit.time" step="900" required />
+        </mat-form-field>
+
+        <mat-form-field appearance="outline">
+          <mat-label>Ramp mode</mat-label>
+          <mat-select name="alarm-ramp" [(ngModel)]="edit.rampMode" panelClass="cp-select-panel">
+            <mat-select-trigger>
+              <span class="cp-select-trigger-text">{{ edit.rampMode }}</span>
+            </mat-select-trigger>
+            <mat-option *ngFor="let mode of availableRampModes" [value]="mode">{{ mode }}</mat-option>
+          </mat-select>
+        </mat-form-field>
+
+        <fieldset class="days-fieldset">
+          <legend>Days of week</legend>
+          <div class="days-chip-grid">
+            <button
+              class="day-chip"
+              type="button"
+              *ngFor="let day of weekDays; let dayIndex = index"
+              [class.active]="edit.selectedDays[dayIndex]"
+              [attr.aria-pressed]="edit.selectedDays[dayIndex]"
+              (click)="toggleEditDay(dayIndex, !edit.selectedDays[dayIndex])">
+              {{ day | slice:0:3 | uppercase }}
+            </button>
+          </div>
+        </fieldset>
+
+        <p class="error" *ngIf="editErrorMessage">{{ editErrorMessage }}</p>
+
+        <div class="dialog-actions">
+          <mat-slide-toggle
+            class="enabled-toggle"
+            [class.enabled-on]="edit.enabled"
+            [class.enabled-off]="!edit.enabled"
+            [hideIcon]="false"
+            name="alarm-enabled"
+            [(ngModel)]="edit.enabled">
+            {{ edit.enabled ? 'Enabled' : 'Disabled' }}
+          </mat-slide-toggle>
+
+          <div class="dialog-actions-right">
+            <button mat-stroked-button class="cp-button cp-button-secondary" type="button" (click)="closeEditDialog()" [disabled]="isRefreshing">
+              Cancel
+            </button>
+            <button mat-flat-button class="cp-button cp-button-primary" type="submit" [disabled]="isRefreshing">
+              {{ isCreatingAlarm ? 'Create' : 'Save' }}
+            </button>
+          </div>
+        </div>
+      </form>
+    </mat-card>
+  </div>
+</div>
