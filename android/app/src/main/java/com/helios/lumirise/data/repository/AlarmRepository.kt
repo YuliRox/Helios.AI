@@ -101,6 +101,10 @@ class AlarmRepository(
     private fun AlarmEntity.toDomain(): Alarm = Alarm(
         id = id,
         lightAlarmId = lightAlarmId,
+        daysOfWeek = daysOfWeekCsv.split(',')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() },
+        timeOfDay = timeOfDay.ifBlank { null },
         timestamp = timestamp,
         enabled = enabled,
         label = label,

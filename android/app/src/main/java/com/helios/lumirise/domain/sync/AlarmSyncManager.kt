@@ -27,9 +27,12 @@ class AlarmSyncManager(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
     suspend fun createAlarmFromApp(timestamp: Long, label: String, enabled: Boolean) = withContext(ioDispatcher) {
+        val recurrence = recurrenceFromTimestamp(timestamp)
         val localEntity = AlarmEntity(
             id = UUID.randomUUID().toString(),
             lightAlarmId = null,
+            daysOfWeekCsv = recurrence.days.joinToString(","),
+            timeOfDay = recurrence.time,
             timestamp = timestamp,
             enabled = enabled,
             label = label,
@@ -94,7 +97,12 @@ class AlarmSyncManager(
                             .filter { it.lightAlarmId == null }
                             .minByOrNull { abs(it.timestamp - ts) }
                         val label = localAlarm?.label ?: "Android Alarm"
+                        val recurrence = recurrenceFromTimestamp(ts)
                         val localEntity = localAlarm?.copy(
+                            daysOfWeekCsv = localAlarm.daysOfWeekCsv.ifBlank {
+                                recurrence.days.joinToString(",")
+                            },
+                            timeOfDay = localAlarm.timeOfDay.ifBlank { recurrence.time },
                             timestamp = ts,
                             enabled = true,
                             label = label,
@@ -102,6 +110,8 @@ class AlarmSyncManager(
                         ) ?: AlarmEntity(
                             id = UUID.randomUUID().toString(),
                             lightAlarmId = null,
+                            daysOfWeekCsv = recurrence.days.joinToString(","),
+                            timeOfDay = recurrence.time,
                             timestamp = ts,
                             enabled = true,
                             label = label,
@@ -149,6 +159,8 @@ class AlarmSyncManager(
 
         remoteAlarms.forEach { remote ->
             val matchedLocal = localByRemoteId.remove(remote.id)
+            val remoteDays = parseDays(remote.daysOfWeek).map { it.toApiDayName() }
+            val remoteTime = parseLocalTime(remote.time).format(TIME_FORMATTER)
             val remoteTimestamp = remote.nextOccurrenceEpochMillis()
             val status = if (matchedLocal == null) {
                 SyncStatus.REMOTE_ONLY
@@ -161,6 +173,8 @@ class AlarmSyncManager(
             merged += AlarmEntity(
                 id = matchedLocal?.id ?: UUID.randomUUID().toString(),
                 lightAlarmId = remote.id,
+                daysOfWeekCsv = remoteDays.joinToString(","),
+                timeOfDay = remoteTime,
                 timestamp = remoteTimestamp,
                 enabled = remote.enabled,
                 label = remote.name?.ifBlank { "Lichtwecker" } ?: "Lichtwecker",
@@ -189,14 +203,21 @@ class AlarmSyncManager(
     }
 
     private fun AlarmEntity.toUpsertRequest(): AlarmUpsertRequestDto {
-        val zoned = Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault())
-        val day = zoned.dayOfWeek.toApiDayName()
-        val time = zoned.toLocalTime().format(TIME_FORMATTER)
+        val storedDays = daysOfWeekCsv
+            .split(',')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+        val normalizedDays = parseDays(storedDays).map { it.toApiDayName() }
+        val normalizedTime = runCatching {
+            LocalTime.parse(timeOfDay, TIME_FORMATTER).format(TIME_FORMATTER)
+        }.getOrNull()
+
+        val fallback = recurrenceFromTimestamp(timestamp)
 
         return AlarmUpsertRequestDto(
             name = label,
-            daysOfWeek = listOf(day),
-            time = time,
+            daysOfWeek = normalizedDays.ifEmpty { fallback.days },
+            time = normalizedTime ?: fallback.time,
             enabled = enabled,
             rampMode = "default"
         )
@@ -207,25 +228,30 @@ class AlarmSyncManager(
         val days = parseDays(daysOfWeek)
         val now = LocalDateTime.now()
 
-        val candidates = days.map { day ->
-            val candidate = now.with(TemporalAdjusters.nextOrSame(day)).withHour(localTime.hour)
-                .withMinute(localTime.minute)
-                .withSecond(0)
-                .withNano(0)
-
-            if (candidate.isAfter(now)) {
-                candidate
-            } else {
-                now.with(TemporalAdjusters.next(day)).withHour(localTime.hour)
+        val chosen = days
+            .map { day ->
+                val candidate = now.with(TemporalAdjusters.nextOrSame(day))
+                    .withHour(localTime.hour)
                     .withMinute(localTime.minute)
                     .withSecond(0)
                     .withNano(0)
-            }
-        }
 
-        val chosen = candidates
+                if (candidate.isAfter(now)) {
+                    candidate
+                } else {
+                    now.with(TemporalAdjusters.next(day))
+                        .withHour(localTime.hour)
+                        .withMinute(localTime.minute)
+                        .withSecond(0)
+                        .withNano(0)
+                }
+            }
             .minOrNull()
-            ?: now.plusDays(1).withHour(localTime.hour).withMinute(localTime.minute).withSecond(0).withNano(0)
+            ?: now.with(TemporalAdjusters.next(now.dayOfWeek))
+                .withHour(localTime.hour)
+                .withMinute(localTime.minute)
+                .withSecond(0)
+                .withNano(0)
 
         return chosen.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
     }
@@ -258,11 +284,24 @@ class AlarmSyncManager(
 
     private fun DayOfWeek.toApiDayName(): String = name.lowercase().replaceFirstChar { it.titlecase() }
 
+    private fun recurrenceFromTimestamp(timestamp: Long): Recurrence {
+        val zoned = Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault())
+        return Recurrence(
+            days = listOf(zoned.dayOfWeek.toApiDayName()),
+            time = zoned.toLocalTime().format(TIME_FORMATTER)
+        )
+    }
+
     companion object {
         private val TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm")
         private const val MAX_ALLOWED_DRIFT_MS = 60_000L
     }
 }
+
+private data class Recurrence(
+    val days: List<String>,
+    val time: String
+)
 
 enum class ConflictResolutionStrategy {
     NONE,

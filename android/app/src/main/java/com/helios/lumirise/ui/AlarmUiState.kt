@@ -4,7 +4,7 @@ import com.helios.lumirise.domain.model.Alarm
 
 data class AlarmUiState(
     val alarms: List<Alarm> = emptyList(),
-    val isAtHomeNetwork: Boolean = true,
+    val isAtHomeNetwork: Boolean = false,
     val apiBaseUrl: String = "",
     val homeNetworkSsid: String = "",
     val currentNetworkSsid: String? = null,

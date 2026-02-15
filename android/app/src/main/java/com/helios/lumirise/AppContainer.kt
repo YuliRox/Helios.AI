@@ -17,7 +17,9 @@ class AppContainer(context: Context) {
         appContext,
         LumiRiseDatabase::class.java,
         "lumi_rise_android.db"
-    ).build()
+    )
+        .addMigrations(LumiRiseDatabase.MIGRATION_1_2)
+        .build()
 
     private val alarmDao = database.alarmDao()
     val syncPreferencesStore = SyncPreferencesStore(appContext)
