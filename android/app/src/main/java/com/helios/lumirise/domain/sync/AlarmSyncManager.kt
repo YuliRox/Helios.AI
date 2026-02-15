@@ -69,28 +69,32 @@ class AlarmSyncManager(
         val merged = mergeRemoteAndLocal(remoteAlarms, localAlarms)
         alarmDao.upsertAll(merged)
 
-        val nextSystemAlarm = systemAlarmGateway.getNextAlarmEpochMillis()
-        val nextRemoteAlarm = merged
+        val systemSchedule = systemAlarmGateway.getScheduledAlarmEpochMillis().toList()
+        val remoteSchedule = merged
             .asSequence()
             .filter { it.enabled && it.lightAlarmId != null }
-            .minByOrNull { it.timestamp }
-            ?.timestamp
+            .map { it.timestamp }
+            .toList()
 
-        val hasDiscrepancy = isDiscrepancy(nextSystemAlarm, nextRemoteAlarm)
+        val hasDiscrepancy = !areSchedulesAligned(systemSchedule, remoteSchedule)
 
         if (hasDiscrepancy) {
             when (strategy) {
                 ConflictResolutionStrategy.REMOTE_TO_SYSTEM -> {
-                    nextRemoteAlarm?.let { ts ->
-                        val alarm = merged.firstOrNull { it.timestamp == ts }
-                        if (alarm != null) {
-                            systemAlarmGateway.scheduleAlarm(alarm.copy(syncStatus = SyncStatus.SYNCED))
-                            alarmDao.upsert(alarm.copy(syncStatus = SyncStatus.SYNCED))
+                    merged
+                        .filter { it.lightAlarmId != null }
+                        .forEach { alarm ->
+                            if (alarm.enabled) {
+                                systemAlarmGateway.scheduleAlarm(alarm.copy(syncStatus = SyncStatus.SYNCED))
+                                alarmDao.upsert(alarm.copy(syncStatus = SyncStatus.SYNCED))
+                            } else {
+                                systemAlarmGateway.cancelAlarm(alarm.id)
+                            }
                         }
-                    }
                 }
 
                 ConflictResolutionStrategy.SYSTEM_TO_REMOTE -> {
+                    val nextSystemAlarm = systemSchedule.minOrNull()
                     nextSystemAlarm?.let { ts ->
                         val localAlarm = merged
                             .asSequence()
@@ -134,11 +138,16 @@ class AlarmSyncManager(
                 }
 
                 ConflictResolutionStrategy.NONE -> {
-                    val outOfSyncAlarm = merged
-                        .firstOrNull { it.lightAlarmId != null && it.enabled }
-                    if (outOfSyncAlarm != null) {
-                        alarmDao.upsert(outOfSyncAlarm.copy(syncStatus = SyncStatus.OUT_OF_SYNC))
-                    }
+                    merged
+                        .filter { it.lightAlarmId != null && it.enabled }
+                        .forEach { alarm ->
+                            val status = if (isAlignedToSchedule(alarm.timestamp, systemSchedule)) {
+                                SyncStatus.SYNCED
+                            } else {
+                                SyncStatus.OUT_OF_SYNC
+                            }
+                            alarmDao.upsert(alarm.copy(syncStatus = status))
+                        }
                 }
             }
         }
@@ -162,6 +171,7 @@ class AlarmSyncManager(
             val remoteDays = parseDays(remote.daysOfWeek).map { it.toApiDayName() }
             val remoteTime = parseLocalTime(remote.time).format(TIME_FORMATTER)
             val remoteTimestamp = remote.nextOccurrenceEpochMillis()
+            val remoteLabel = remote.name?.ifBlank { "Lichtwecker" } ?: "Lichtwecker"
             val status = if (matchedLocal == null) {
                 SyncStatus.REMOTE_ONLY
             } else if (isDiscrepancy(matchedLocal.timestamp, remoteTimestamp)) {
@@ -170,16 +180,29 @@ class AlarmSyncManager(
                 SyncStatus.SYNCED
             }
 
-            merged += AlarmEntity(
-                id = matchedLocal?.id ?: UUID.randomUUID().toString(),
-                lightAlarmId = remote.id,
-                daysOfWeekCsv = remoteDays.joinToString(","),
-                timeOfDay = remoteTime,
-                timestamp = remoteTimestamp,
-                enabled = remote.enabled,
-                label = remote.name?.ifBlank { "Lichtwecker" } ?: "Lichtwecker",
-                syncStatus = status
-            )
+            merged += if (matchedLocal != null) {
+                matchedLocal.copy(
+                    lightAlarmId = remote.id,
+                    daysOfWeekCsv = remoteDays.joinToString(","),
+                    timeOfDay = remoteTime,
+                    timestamp = remoteTimestamp,
+                    enabled = remote.enabled,
+                    // Keep local custom label when present.
+                    label = matchedLocal.label.ifBlank { remoteLabel },
+                    syncStatus = status
+                )
+            } else {
+                AlarmEntity(
+                    id = UUID.randomUUID().toString(),
+                    lightAlarmId = remote.id,
+                    daysOfWeekCsv = remoteDays.joinToString(","),
+                    timeOfDay = remoteTime,
+                    timestamp = remoteTimestamp,
+                    enabled = remote.enabled,
+                    label = remoteLabel,
+                    syncStatus = status
+                )
+            }
         }
 
         val remainingLocal = localAlarms.filter { it.lightAlarmId == null }
@@ -201,6 +224,28 @@ class AlarmSyncManager(
         }
         return abs(left - right) > MAX_ALLOWED_DRIFT_MS
     }
+
+    private fun areSchedulesAligned(systemSchedule: List<Long>, remoteSchedule: List<Long>): Boolean {
+        if (systemSchedule.size != remoteSchedule.size) {
+            return false
+        }
+
+        val unmatchedSystem = systemSchedule.toMutableList()
+        for (remoteTs in remoteSchedule) {
+            val matchingIndex = unmatchedSystem.indexOfFirst { systemTs ->
+                abs(systemTs - remoteTs) <= MAX_ALLOWED_DRIFT_MS
+            }
+            if (matchingIndex < 0) {
+                return false
+            }
+            unmatchedSystem.removeAt(matchingIndex)
+        }
+
+        return unmatchedSystem.isEmpty()
+    }
+
+    private fun isAlignedToSchedule(timestamp: Long, schedule: List<Long>): Boolean =
+        schedule.any { systemTs -> abs(systemTs - timestamp) <= MAX_ALLOWED_DRIFT_MS }
 
     private fun AlarmEntity.toUpsertRequest(): AlarmUpsertRequestDto {
         val storedDays = daysOfWeekCsv

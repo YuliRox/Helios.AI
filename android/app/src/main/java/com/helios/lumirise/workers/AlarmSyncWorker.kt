@@ -158,7 +158,7 @@ class AlarmSyncWorker(
         const val STRATEGY_REMOTE_TO_SYSTEM = "remote_to_system"
         const val STRATEGY_SYSTEM_TO_REMOTE = "system_to_remote"
 
-        private const val DISCREPANCY_NOTIFICATION_ID = 4001
-        private const val RETURN_HOME_NOTIFICATION_ID = 4003
+        const val DISCREPANCY_NOTIFICATION_ID = 4001
+        const val RETURN_HOME_NOTIFICATION_ID = 4003
     }
 }
