@@ -42,9 +42,14 @@ class AlarmRepository(
         _currentNetworkSsid.value = currentSsid
 
         val configuredHomeSsid = preferencesStore.getHomeNetworkSsid()
-        val ssidMatches = matchesConfiguredHomeSsid(configuredHomeSsid, currentSsid)
-        val isApiReachable = if (ssidMatches) homeNetworkChecker.isApiReachable() else false
-        val isAtHome = ssidMatches && isApiReachable
+        val requiresSsidMatch = !configuredHomeSsid.isNullOrBlank()
+        val ssidSatisfied = if (requiresSsidMatch) {
+            matchesConfiguredHomeSsid(configuredHomeSsid, currentSsid)
+        } else {
+            true
+        }
+        val isApiReachable = if (ssidSatisfied) homeNetworkChecker.isApiReachable() else false
+        val isAtHome = ssidSatisfied && isApiReachable
         _isAtHomeNetwork.value = isAtHome
 
         val previousHomeState = preferencesStore.getLastKnownHomeState(defaultValue = true)
