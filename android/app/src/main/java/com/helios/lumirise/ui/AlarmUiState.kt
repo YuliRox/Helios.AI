@@ -11,5 +11,6 @@ data class AlarmUiState(
     val autoSyncEnabled: Boolean = true,
     val isSyncing: Boolean = false,
     val showDiscrepancyWarning: Boolean = false,
+    val errorEventId: Long = 0L,
     val errorMessage: String? = null
 )

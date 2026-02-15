@@ -228,30 +228,23 @@ class AlarmSyncManager(
         val days = parseDays(daysOfWeek)
         val now = LocalDateTime.now()
 
-        val chosen = days
-            .map { day ->
-                val candidate = now.with(TemporalAdjusters.nextOrSame(day))
-                    .withHour(localTime.hour)
-                    .withMinute(localTime.minute)
-                    .withSecond(0)
-                    .withNano(0)
-
-                if (candidate.isAfter(now)) {
-                    candidate
-                } else {
-                    now.with(TemporalAdjusters.next(day))
-                        .withHour(localTime.hour)
-                        .withMinute(localTime.minute)
-                        .withSecond(0)
-                        .withNano(0)
-                }
-            }
-            .minOrNull()
-            ?: now.with(TemporalAdjusters.next(now.dayOfWeek))
+        val chosen = days.minOf { day ->
+            val candidate = now.with(TemporalAdjusters.nextOrSame(day))
                 .withHour(localTime.hour)
                 .withMinute(localTime.minute)
                 .withSecond(0)
                 .withNano(0)
+
+            if (candidate.isAfter(now)) {
+                candidate
+            } else {
+                now.with(TemporalAdjusters.next(day))
+                    .withHour(localTime.hour)
+                    .withMinute(localTime.minute)
+                    .withSecond(0)
+                    .withNano(0)
+            }
+        }
 
         return chosen.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
     }

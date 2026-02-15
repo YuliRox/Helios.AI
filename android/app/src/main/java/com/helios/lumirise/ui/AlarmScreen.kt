@@ -51,7 +51,7 @@ fun AlarmScreen(viewModel: AlarmViewModel) {
     var showCreateDialog by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
 
-    LaunchedEffect(state.errorMessage) {
+    LaunchedEffect(state.errorEventId) {
         val message = state.errorMessage ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(message)
     }

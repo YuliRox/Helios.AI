@@ -66,9 +66,7 @@ class AlarmViewModel(
             val timestamp = runCatching {
                 parseNextOccurrenceTimestamp(timeInput)
             }.getOrElse {
-                _uiState.update { state ->
-                    state.copy(errorMessage = "Zeit muss im Format HH:mm sein.")
-                }
+                emitError("Zeit muss im Format HH:mm sein.")
                 return@launch
             }
 
@@ -81,9 +79,7 @@ class AlarmViewModel(
         viewModelScope.launch {
             val normalizedUrl = normalizeApiBaseUrl(apiBaseUrl)
             if (normalizedUrl == null) {
-                _uiState.update { state ->
-                    state.copy(errorMessage = "API URI muss mit http:// oder https:// beginnen.")
-                }
+                emitError("API URI muss mit http:// oder https:// beginnen.")
                 return@launch
             }
 
@@ -196,9 +192,7 @@ class AlarmViewModel(
 
         if (!presence.isAtHomeNetwork) {
             if (userInitiated) {
-                _uiState.update { state ->
-                    state.copy(errorMessage = "Nicht im Heimnetz: Lichtwecker-Sync ist deaktiviert.")
-                }
+                emitError("Nicht im Heimnetz: Lichtwecker-Sync ist deaktiviert.")
             }
             return false
         }
@@ -214,7 +208,17 @@ class AlarmViewModel(
             state.copy(
                 isSyncing = false,
                 showDiscrepancyWarning = state.isAtHomeNetwork && result.hasDiscrepancy,
-                errorMessage = if (result.success) null else "Synchronisierung fehlgeschlagen."
+                errorMessage = if (result.success) null else "Synchronisierung fehlgeschlagen.",
+                errorEventId = if (result.success) state.errorEventId else System.nanoTime()
+            )
+        }
+    }
+
+    private fun emitError(message: String) {
+        _uiState.update { state ->
+            state.copy(
+                errorMessage = message,
+                errorEventId = System.nanoTime()
             )
         }
     }
