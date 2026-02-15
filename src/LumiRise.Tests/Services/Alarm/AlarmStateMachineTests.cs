@@ -56,7 +56,7 @@ public class AlarmStateMachineTests : IDisposable
     [Fact]
     public void InitialState_IsIdle()
     {
-        Assert.Equal(AlarmState.Idle, _sut.CurrentState);
+        _sut.CurrentState.Should().Be(AlarmState.Idle);
     }
 
     [Theory]
@@ -76,8 +76,8 @@ public class AlarmStateMachineTests : IDisposable
     {
         TransitionTo(from);
         var result = _sut.Fire(trigger);
-        Assert.Equal(expected, result);
-        Assert.Equal(expected, _sut.CurrentState);
+        result.Should().Be(expected);
+        _sut.CurrentState.Should().Be(expected);
     }
 
     [Theory]
@@ -91,8 +91,9 @@ public class AlarmStateMachineTests : IDisposable
         AlarmState from, AlarmTrigger trigger)
     {
         TransitionTo(from);
-        Assert.Throws<InvalidOperationException>(() => _sut.Fire(trigger));
-        Assert.Equal(from, _sut.CurrentState); // state unchanged
+        Action act = () => _sut.Fire(trigger);
+        act.Should().Throw<InvalidOperationException>();
+        _sut.CurrentState.Should().Be(from); // state unchanged
     }
 
     // --- CanFire / GetPermittedTriggers ---
@@ -100,10 +101,10 @@ public class AlarmStateMachineTests : IDisposable
     [Fact]
     public void CanFire_ReflectsTransitionTable()
     {
-        Assert.True(_sut.CanFire(AlarmTrigger.SchedulerTrigger));
-        Assert.True(_sut.CanFire(AlarmTrigger.Pause));
-        Assert.False(_sut.CanFire(AlarmTrigger.Complete));
-        Assert.False(_sut.CanFire(AlarmTrigger.Reset));
+        _sut.CanFire(AlarmTrigger.SchedulerTrigger).Should().BeTrue();
+        _sut.CanFire(AlarmTrigger.Pause).Should().BeTrue();
+        _sut.CanFire(AlarmTrigger.Complete).Should().BeFalse();
+        _sut.CanFire(AlarmTrigger.Reset).Should().BeFalse();
     }
 
     [Fact]
@@ -111,9 +112,8 @@ public class AlarmStateMachineTests : IDisposable
     {
         TransitionTo(AlarmState.Running);
         var permitted = _sut.GetPermittedTriggers();
-        Assert.Equal(
-            new HashSet<AlarmTrigger> { AlarmTrigger.ManualOverride, AlarmTrigger.Complete, AlarmTrigger.Error },
-            new HashSet<AlarmTrigger>(permitted));
+        new HashSet<AlarmTrigger>(permitted).Should().BeEquivalentTo(
+            new HashSet<AlarmTrigger> { AlarmTrigger.ManualOverride, AlarmTrigger.Complete, AlarmTrigger.Error });
     }
 
     // --- Observable notifications ---
@@ -126,13 +126,12 @@ public class AlarmStateMachineTests : IDisposable
 
         _sut.Fire(AlarmTrigger.SchedulerTrigger, "test msg");
 
-        Assert.Single(transitions);
-        var t = transitions[0];
-        Assert.Equal(AlarmState.Idle, t.PreviousState);
-        Assert.Equal(AlarmState.Triggered, t.NewState);
-        Assert.Equal(AlarmTrigger.SchedulerTrigger, t.Trigger);
-        Assert.Equal("test msg", t.Message);
-        Assert.Equal(_definition.Id, t.AlarmId);
+        var t = transitions.Should().ContainSingle().Which;
+        t.PreviousState.Should().Be(AlarmState.Idle);
+        t.NewState.Should().Be(AlarmState.Triggered);
+        t.Trigger.Should().Be(AlarmTrigger.SchedulerTrigger);
+        t.Message.Should().Be("test msg");
+        t.AlarmId.Should().Be(_definition.Id);
     }
 
     // --- Full lifecycle ---
@@ -143,10 +142,10 @@ public class AlarmStateMachineTests : IDisposable
         _sut.Fire(AlarmTrigger.SchedulerTrigger);
         _sut.Fire(AlarmTrigger.Start);
         _sut.Fire(AlarmTrigger.Complete);
-        Assert.Equal(AlarmState.Completed, _sut.CurrentState);
+        _sut.CurrentState.Should().Be(AlarmState.Completed);
 
         _sut.Fire(AlarmTrigger.Reset);
-        Assert.Equal(AlarmState.Idle, _sut.CurrentState);
+        _sut.CurrentState.Should().Be(AlarmState.Idle);
     }
 
     [Fact]
@@ -155,14 +154,14 @@ public class AlarmStateMachineTests : IDisposable
         _sut.Fire(AlarmTrigger.SchedulerTrigger);
         _sut.Fire(AlarmTrigger.Start);
         _sut.Fire(AlarmTrigger.ManualOverride, "user turned off");
-        Assert.Equal(AlarmState.Interrupted, _sut.CurrentState);
+        _sut.CurrentState.Should().Be(AlarmState.Interrupted);
 
         _sut.Fire(AlarmTrigger.Reset);
-        Assert.Equal(AlarmState.Idle, _sut.CurrentState);
+        _sut.CurrentState.Should().Be(AlarmState.Idle);
 
         // Can restart after reset
         _sut.Fire(AlarmTrigger.SchedulerTrigger);
-        Assert.Equal(AlarmState.Triggered, _sut.CurrentState);
+        _sut.CurrentState.Should().Be(AlarmState.Triggered);
     }
 
     // --- ExecuteAsync ---
@@ -170,7 +169,8 @@ public class AlarmStateMachineTests : IDisposable
     [Fact]
     public async Task ExecuteAsync_WhenNotRunning_Throws()
     {
-        await Assert.ThrowsAsync<InvalidOperationException>(() => _sut.ExecuteAsync(TestContext.Current.CancellationToken));
+        Func<Task> act = () => _sut.ExecuteAsync(TestContext.Current.CancellationToken);
+        await act.Should().ThrowAsync<InvalidOperationException>();
     }
 
     [Fact]
@@ -180,7 +180,7 @@ public class AlarmStateMachineTests : IDisposable
 
         await _sut.ExecuteAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(AlarmState.Completed, _sut.CurrentState);
+        _sut.CurrentState.Should().Be(AlarmState.Completed);
         _publisher.Verify(p => p.TurnOnAsync(It.IsAny<CancellationToken>()), Times.Once);
         _publisher.Verify(p => p.SetBrightnessAsync(20, It.IsAny<CancellationToken>()), Times.Once);
         _publisher.Verify(p => p.RampBrightnessAsync(
@@ -217,7 +217,7 @@ public class AlarmStateMachineTests : IDisposable
         TransitionTo(AlarmState.Running);
         await _sut.ExecuteAsync(cts.Token);
 
-        Assert.Equal(AlarmState.Failed, _sut.CurrentState);
+        _sut.CurrentState.Should().Be(AlarmState.Failed);
     }
 
     [Fact]
@@ -231,7 +231,7 @@ public class AlarmStateMachineTests : IDisposable
         using (_logger.AllowErrors())
             await _sut.ExecuteAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(AlarmState.Failed, _sut.CurrentState);
+        _sut.CurrentState.Should().Be(AlarmState.Failed);
     }
 
     [Fact]
@@ -257,7 +257,7 @@ public class AlarmStateMachineTests : IDisposable
 
         // Interruption fires ManualOverride, moving out of Running.
         // The subsequent Complete trigger is ignored (TryFireCore logs warning).
-        Assert.Equal(AlarmState.Interrupted, _sut.CurrentState);
+        _sut.CurrentState.Should().Be(AlarmState.Interrupted);
     }
 
     [Fact]
@@ -281,7 +281,8 @@ public class AlarmStateMachineTests : IDisposable
     public void Fire_AfterDispose_ThrowsObjectDisposedException()
     {
         _sut.Dispose();
-        Assert.Throws<ObjectDisposedException>(() => _sut.Fire(AlarmTrigger.SchedulerTrigger));
+        Action act = () => _sut.Fire(AlarmTrigger.SchedulerTrigger);
+        act.Should().Throw<ObjectDisposedException>();
     }
 
     // --- Concurrency ---
@@ -308,6 +309,6 @@ public class AlarmStateMachineTests : IDisposable
         await Task.WhenAll(tasks);
 
         // State must be one of the two valid states — never corrupted
-        Assert.Contains(_sut.CurrentState, new[] { AlarmState.Idle, AlarmState.Triggered });
+        _sut.CurrentState.Should().BeOneOf(AlarmState.Idle, AlarmState.Triggered);
     }
 }

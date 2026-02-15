@@ -1,6 +1,7 @@
 using Hangfire;
 using Hangfire.PostgreSql;
 using Hangfire.Storage;
+using LumiRise.Api.Configuration;
 using LumiRise.Api.Data;
 using LumiRise.Api.Data.Entities;
 using LumiRise.Api.Services.Alarm.Implementation;
@@ -31,6 +32,16 @@ public class HangfireAlarmSchedulingIntegrationTests(ITestOutputHelper testOutpu
         }
 
         var alarmId = Guid.NewGuid();
+        var rampProfileId = Guid.NewGuid();
+        await SeedRampProfileAsync(provider, new RampProfileEntity
+        {
+            Id = rampProfileId,
+            Mode = "test-ramp",
+            StartBrightnessPercent = 15,
+            TargetBrightnessPercent = 100,
+            RampDurationSeconds = 900
+        });
+
         await SeedAlarmAsync(provider, new AlarmScheduleEntity
         {
             Id = alarmId,
@@ -38,9 +49,7 @@ public class HangfireAlarmSchedulingIntegrationTests(ITestOutputHelper testOutpu
             Enabled = true,
             CronExpression = "0 6 * * 1-5",
             TimeZoneId = "UTC",
-            StartBrightnessPercent = 15,
-            TargetBrightnessPercent = 100,
-            RampDurationSeconds = 900
+            RampProfileId = rampProfileId
         });
 
         var synchronizer = provider.GetRequiredService<IAlarmRecurringJobSynchronizer>();
@@ -48,8 +57,8 @@ public class HangfireAlarmSchedulingIntegrationTests(ITestOutputHelper testOutpu
 
         var recurringJobId = AlarmRecurringJobSynchronizer.BuildRecurringJobId(alarmId);
         var recurringJobs = GetAlarmRecurringJobs(provider).ToDictionary(x => x.Id, StringComparer.Ordinal);
-        Assert.True(recurringJobs.ContainsKey(recurringJobId));
-        Assert.Equal("0 6 * * 1-5", recurringJobs[recurringJobId].Cron);
+        recurringJobs.ContainsKey(recurringJobId).Should().BeTrue();
+        recurringJobs[recurringJobId].Cron.Should().Be("0 6 * * 1-5");
 
         await UpdateAlarmAsync(provider, alarmId, alarm =>
         {
@@ -59,8 +68,8 @@ public class HangfireAlarmSchedulingIntegrationTests(ITestOutputHelper testOutpu
         await synchronizer.SyncAsync(TestContext.Current.CancellationToken);
 
         recurringJobs = GetAlarmRecurringJobs(provider).ToDictionary(x => x.Id, StringComparer.Ordinal);
-        Assert.True(recurringJobs.ContainsKey(recurringJobId));
-        Assert.Equal("30 6 * * 1-5", recurringJobs[recurringJobId].Cron);
+        recurringJobs.ContainsKey(recurringJobId).Should().BeTrue();
+        recurringJobs[recurringJobId].Cron.Should().Be("30 6 * * 1-5");
 
         await UpdateAlarmAsync(provider, alarmId, alarm =>
         {
@@ -70,7 +79,7 @@ public class HangfireAlarmSchedulingIntegrationTests(ITestOutputHelper testOutpu
         await synchronizer.SyncAsync(TestContext.Current.CancellationToken);
 
         recurringJobs = GetAlarmRecurringJobs(provider).ToDictionary(x => x.Id, StringComparer.Ordinal);
-        Assert.False(recurringJobs.ContainsKey(recurringJobId));
+        recurringJobs.ContainsKey(recurringJobId).Should().BeFalse();
     }
 
     private static ServiceCollection BuildServiceCollection(string connectionString)
@@ -80,6 +89,7 @@ public class HangfireAlarmSchedulingIntegrationTests(ITestOutputHelper testOutpu
 
         services.AddDbContext<LumiRiseDbContext>(options =>
             options.UseNpgsql(connectionString));
+        services.Configure<AlarmSettingsOptions>(options => options.TimeZoneId = "UTC");
 
         services.AddHangfire(configuration => configuration
             .UseSimpleAssemblyNameTypeSerializer()
@@ -105,6 +115,14 @@ public class HangfireAlarmSchedulingIntegrationTests(ITestOutputHelper testOutpu
         using var scope = provider.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<LumiRiseDbContext>();
         dbContext.AlarmSchedules.Add(entity);
+        await dbContext.SaveChangesAsync(TestContext.Current.CancellationToken);
+    }
+
+    private static async Task SeedRampProfileAsync(IServiceProvider provider, RampProfileEntity entity)
+    {
+        using var scope = provider.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<LumiRiseDbContext>();
+        dbContext.RampProfiles.Add(entity);
         await dbContext.SaveChangesAsync(TestContext.Current.CancellationToken);
     }
 

@@ -44,7 +44,7 @@ services:
       Mqtt__Server: mqtt-broker
       Mqtt__Port: 1883
       Mqtt__ClientId: LumiRise
-      AlarmScheduler__SyncIntervalSeconds: 30
+      AlarmSettings__TimeZoneId: UTC
     ports:
       - "8080:8080"
 

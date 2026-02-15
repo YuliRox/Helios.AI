@@ -39,8 +39,8 @@ public class InterruptionDetectorTests
 
         _stateChangesSubject.OnNext(actualState);
 
-        Assert.Single(interruptions);
-        Assert.Equal(InterruptionReason.ManualPowerOff, interruptions[0].Reason);
+        interruptions.Should().ContainSingle();
+        interruptions[0].Reason.Should().Be(InterruptionReason.ManualPowerOff);
     }
 
     [Fact]
@@ -59,8 +59,8 @@ public class InterruptionDetectorTests
 
         _stateChangesSubject.OnNext(actualState);
 
-        Assert.Single(interruptions);
-        Assert.Equal(InterruptionReason.ManualBrightnessAdjustment, interruptions[0].Reason);
+        interruptions.Should().ContainSingle();
+        interruptions[0].Reason.Should().Be(InterruptionReason.ManualBrightnessAdjustment);
     }
 
     [Fact]
@@ -79,7 +79,7 @@ public class InterruptionDetectorTests
 
         _stateChangesSubject.OnNext(actualState);
 
-        Assert.Empty(interruptions);
+        interruptions.Should().BeEmpty();
     }
 
     [Fact]
@@ -98,7 +98,7 @@ public class InterruptionDetectorTests
 
         _stateChangesSubject.OnNext(actualState);
 
-        Assert.Empty(interruptions);
+        interruptions.Should().BeEmpty();
     }
 
     [Fact]
@@ -116,7 +116,7 @@ public class InterruptionDetectorTests
 
         _stateChangesSubject.OnNext(actualState);
 
-        Assert.Empty(interruptions);
+        interruptions.Should().BeEmpty();
     }
 
     [Fact]
@@ -136,7 +136,7 @@ public class InterruptionDetectorTests
 
         _stateChangesSubject.OnNext(actualState);
 
-        Assert.Empty(interruptions);
+        interruptions.Should().BeEmpty();
     }
 
     [Fact]
@@ -155,13 +155,10 @@ public class InterruptionDetectorTests
 
         _stateChangesSubject.OnNext(actualState);
 
-        Assert.Single(interruptions);
-        var evt = interruptions[0];
-        Assert.NotNull(evt.ExpectedState);
-        Assert.NotNull(evt.ActualState);
-        Assert.NotNull(evt.Message);
-        Assert.Equal(expectedState, evt.ExpectedState);
-        Assert.Equal(actualState, evt.ActualState);
+        var evt = interruptions.Should().ContainSingle().Which;
+        evt.ExpectedState.Should().Be(expectedState);
+        evt.ActualState.Should().Be(actualState);
+        evt.Message.Should().NotBeNull();
     }
 
     [Fact]
@@ -182,6 +179,6 @@ public class InterruptionDetectorTests
         _stateChangesSubject.OnNext(actualState1);
         _stateChangesSubject.OnNext(actualState2);
 
-        Assert.Equal(2, interruptions.Count);
+        interruptions.Should().HaveCount(2);
     }
 }

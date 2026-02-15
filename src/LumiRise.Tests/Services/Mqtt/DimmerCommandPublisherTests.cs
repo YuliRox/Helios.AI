@@ -26,7 +26,7 @@ public class DimmerCommandPublisherTests(ITestOutputHelper testOutput)
             _connectionManagerMock.Object,
             Options.Create(_options));
 
-        Assert.NotNull(publisher);
+        publisher.Should().NotBeNull();
     }
 
     [Fact]
@@ -37,8 +37,8 @@ public class DimmerCommandPublisherTests(ITestOutputHelper testOutput)
             _connectionManagerMock.Object,
             Options.Create(_options));
 
-        await Assert.ThrowsAsync<ArgumentException>(
-            () => publisher.SetBrightnessAsync(101, CancellationToken.None));
+        Func<Task> act = () => publisher.SetBrightnessAsync(101, CancellationToken.None);
+        await act.Should().ThrowAsync<ArgumentException>();
     }
 
     [Fact]
@@ -49,8 +49,8 @@ public class DimmerCommandPublisherTests(ITestOutputHelper testOutput)
             _connectionManagerMock.Object,
             Options.Create(_options));
 
-        await Assert.ThrowsAsync<ArgumentException>(
-            () => publisher.SetBrightnessAsync(-1, CancellationToken.None));
+        Func<Task> act = () => publisher.SetBrightnessAsync(-1, CancellationToken.None);
+        await act.Should().ThrowAsync<ArgumentException>();
     }
 
     [Fact]
@@ -61,9 +61,9 @@ public class DimmerCommandPublisherTests(ITestOutputHelper testOutput)
             _connectionManagerMock.Object,
             Options.Create(_options));
 
-        await Assert.ThrowsAsync<ArgumentException>(
-            () => publisher.RampBrightnessAsync(-1, 50, TimeSpan.FromSeconds(1),
-                null, CancellationToken.None));
+        Func<Task> act = () => publisher.RampBrightnessAsync(-1, 50, TimeSpan.FromSeconds(1),
+            null, CancellationToken.None);
+        await act.Should().ThrowAsync<ArgumentException>();
     }
 
     [Fact]
@@ -74,8 +74,8 @@ public class DimmerCommandPublisherTests(ITestOutputHelper testOutput)
             _connectionManagerMock.Object,
             Options.Create(_options));
 
-        await Assert.ThrowsAsync<ArgumentException>(
-            () => publisher.RampBrightnessAsync(50, 101, TimeSpan.FromSeconds(1),
-                null, CancellationToken.None));
+        Func<Task> act = () => publisher.RampBrightnessAsync(50, 101, TimeSpan.FromSeconds(1),
+            null, CancellationToken.None);
+        await act.Should().ThrowAsync<ArgumentException>();
     }
 }

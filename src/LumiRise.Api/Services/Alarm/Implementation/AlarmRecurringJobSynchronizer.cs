@@ -1,8 +1,10 @@
 using Hangfire;
 using Hangfire.Storage;
+using LumiRise.Api.Configuration;
 using LumiRise.Api.Data;
 using LumiRise.Api.Services.Alarm.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace LumiRise.Api.Services.Alarm.Implementation;
 
@@ -13,22 +15,26 @@ public sealed class AlarmRecurringJobSynchronizer : IAlarmRecurringJobSynchroniz
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IRecurringJobManager _recurringJobManager;
     private readonly JobStorage _jobStorage;
+    private readonly AlarmSettingsOptions _alarmSettings;
     private readonly ILogger<AlarmRecurringJobSynchronizer> _logger;
 
     public AlarmRecurringJobSynchronizer(
         IServiceScopeFactory scopeFactory,
         IRecurringJobManager recurringJobManager,
         JobStorage jobStorage,
+        IOptions<AlarmSettingsOptions> alarmSettingsOptions,
         ILogger<AlarmRecurringJobSynchronizer> logger)
     {
         ArgumentNullException.ThrowIfNull(scopeFactory);
         ArgumentNullException.ThrowIfNull(recurringJobManager);
         ArgumentNullException.ThrowIfNull(jobStorage);
+        ArgumentNullException.ThrowIfNull(alarmSettingsOptions);
         ArgumentNullException.ThrowIfNull(logger);
 
         _scopeFactory = scopeFactory;
         _recurringJobManager = recurringJobManager;
         _jobStorage = jobStorage;
+        _alarmSettings = alarmSettingsOptions.Value;
         _logger = logger;
     }
 
@@ -50,7 +56,7 @@ public sealed class AlarmRecurringJobSynchronizer : IAlarmRecurringJobSynchroniz
             var recurringJobId = BuildRecurringJobId(alarm.Id);
             expectedRecurringIds.Add(recurringJobId);
 
-            var timeZone = ResolveTimeZone(alarm.TimeZoneId);
+            var timeZone = ResolveTimeZone(_alarmSettings.TimeZoneId);
             try
             {
                 _recurringJobManager.AddOrUpdate<AlarmExecutionJob>(

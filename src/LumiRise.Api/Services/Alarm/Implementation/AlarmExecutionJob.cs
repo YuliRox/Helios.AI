@@ -1,9 +1,11 @@
 using Hangfire;
+using LumiRise.Api.Configuration;
 using LumiRise.Api.Data;
 using LumiRise.Api.Services.Alarm.Interfaces;
 using LumiRise.Api.Services.Alarm.Models;
 using LumiRise.Api.Services.Mqtt.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace LumiRise.Api.Services.Alarm.Implementation;
 
@@ -13,6 +15,7 @@ public sealed class AlarmExecutionJob
     private readonly IAlarmStateMachineFactory _stateMachineFactory;
     private readonly IMqttConnectionManager _mqttConnectionManager;
     private readonly IDimmerStateMonitor _stateMonitor;
+    private readonly AlarmSettingsOptions _alarmSettings;
     private readonly ILogger<AlarmExecutionJob> _logger;
 
     public AlarmExecutionJob(
@@ -20,18 +23,21 @@ public sealed class AlarmExecutionJob
         IAlarmStateMachineFactory stateMachineFactory,
         IMqttConnectionManager mqttConnectionManager,
         IDimmerStateMonitor stateMonitor,
+        IOptions<AlarmSettingsOptions> alarmSettingsOptions,
         ILogger<AlarmExecutionJob> logger)
     {
         ArgumentNullException.ThrowIfNull(dbContext);
         ArgumentNullException.ThrowIfNull(stateMachineFactory);
         ArgumentNullException.ThrowIfNull(mqttConnectionManager);
         ArgumentNullException.ThrowIfNull(stateMonitor);
+        ArgumentNullException.ThrowIfNull(alarmSettingsOptions);
         ArgumentNullException.ThrowIfNull(logger);
 
         _dbContext = dbContext;
         _stateMachineFactory = stateMachineFactory;
         _mqttConnectionManager = mqttConnectionManager;
         _stateMonitor = stateMonitor;
+        _alarmSettings = alarmSettingsOptions.Value;
         _logger = logger;
     }
 
@@ -40,6 +46,7 @@ public sealed class AlarmExecutionJob
     {
         var alarm = await _dbContext.AlarmSchedules
             .AsNoTracking()
+            .Include(x => x.RampProfile)
             .FirstOrDefaultAsync(x => x.Id == alarmId);
 
         if (alarm is null)
@@ -54,15 +61,21 @@ public sealed class AlarmExecutionJob
             return;
         }
 
+        if (alarm.RampProfile is null)
+        {
+            _logger.LogWarning("Skipping alarm execution for {AlarmId}: ramp profile not found", alarmId);
+            return;
+        }
+
         var definition = new AlarmDefinition
         {
             Id = alarm.Id,
             Name = alarm.Name,
             Enabled = alarm.Enabled,
-            StartBrightnessPercent = alarm.StartBrightnessPercent,
-            TargetBrightnessPercent = alarm.TargetBrightnessPercent,
-            RampDuration = TimeSpan.FromSeconds(Math.Max(1, alarm.RampDurationSeconds)),
-            TimeZoneId = alarm.TimeZoneId,
+            StartBrightnessPercent = alarm.RampProfile.StartBrightnessPercent,
+            TargetBrightnessPercent = alarm.RampProfile.TargetBrightnessPercent,
+            RampDuration = TimeSpan.FromSeconds(alarm.RampProfile.RampDurationSeconds),
+            TimeZoneId = _alarmSettings.TimeZoneId,
             UpdatedAt = alarm.UpdatedAtUtc,
             CreatedAt = alarm.CreatedAtUtc
         };
