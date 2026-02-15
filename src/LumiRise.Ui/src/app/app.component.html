@@ -28,7 +28,7 @@
     </mat-card>
 
     <mat-card class="calendar-card" *ngIf="!isLoading">
-      <div class="calendar-scroll-container">
+      <div class="calendar-scroll-container" #calendarScroll>
         <div class="calendar-header-row">
           <div class="time-header-cell">Time</div>
           <div class="header-days">
@@ -93,9 +93,8 @@
 
   <mat-card class="alarm-menu" #menuPanel *ngIf="actionMenu as menu" [style.left.px]="menu.x" [style.top.px]="menu.y">
     <p class="menu-title">{{ alarmNameFromMenu }}</p>
-    <button mat-stroked-button class="cp-button cp-button-secondary" type="button" (click)="onEditAlarmFromMenu()">Modify</button>
-    <button mat-flat-button class="cp-button cp-button-danger" type="button" (click)="onDeleteAlarmFromMenu()">Delete</button>
-    <button mat-stroked-button class="cp-button cp-button-secondary" type="button" (click)="closeMenu()">Close</button>
+    <button mat-stroked-button class="cp-button cp-button-secondary" type="button" (click)="onEditAlarmFromMenu(menu.alarmId)">Modify</button>
+    <button mat-flat-button class="cp-button cp-button-danger" type="button" (click)="onDeleteAlarmFromMenu(menu.alarmId)">Delete</button>
   </mat-card>
 
   <div class="dialog-backdrop" *ngIf="editingAlarm as edit">
@@ -162,6 +161,24 @@
           </div>
         </div>
       </form>
+    </mat-card>
+  </div>
+
+  <div class="dialog-backdrop" *ngIf="pendingDeleteAlarm as deleteAlarm">
+    <mat-card class="dialog delete-dialog">
+      <h2>Delete Alarm</h2>
+      <mat-divider></mat-divider>
+
+      <p class="delete-copy">Delete alarm "{{ deleteAlarm.name?.trim() || 'Unnamed alarm' }}"?</p>
+
+      <div class="delete-actions">
+        <button mat-stroked-button class="cp-button cp-button-secondary" type="button" (click)="cancelDeleteAlarm()" [disabled]="isRefreshing">
+          Cancel
+        </button>
+        <button mat-flat-button class="cp-button cp-button-danger" type="button" (click)="confirmDeleteAlarm()" [disabled]="isRefreshing">
+          Delete
+        </button>
+      </div>
     </mat-card>
   </div>
 </div>

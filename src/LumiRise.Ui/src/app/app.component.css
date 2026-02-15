@@ -674,6 +674,8 @@
   box-shadow:
     0 0 0 1px rgba(255, 57, 208, 0.28) inset,
     0 0 18px rgba(23, 230, 255, 0.22);
+  --mat-form-field-outlined-label-text-color: var(--cp-dialog-soft);
+  --mat-form-field-focus-label-text-color: var(--cp-dialog-soft);
 }
 
 .dialog h2 {
@@ -695,15 +697,13 @@
 }
 
 .cp-select-trigger-text {
-  color: var(--cp-dialog-soft);
   font-size: 0.74rem;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
-.dialog .mat-mdc-input-element,
-.dialog .mat-mdc-select-min-line,
-.dialog .mat-mdc-select-value-text {
+.dialog .mat-mdc-form-field .mdc-floating-label,
+.dialog .mat-mdc-form-field .mat-mdc-form-field-required-marker {
   color: var(--cp-dialog-soft) !important;
 }
 
@@ -771,6 +771,23 @@
   align-items: center;
   gap: 10px;
   margin-left: auto;
+}
+
+.delete-dialog {
+  width: min(420px, 90vw);
+}
+
+.delete-copy {
+  margin: 12px 0 0;
+  color: #b6d2ea;
+  letter-spacing: 0.03em;
+}
+
+.delete-actions {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 @media (max-width: 1000px) {

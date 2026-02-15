@@ -115,8 +115,11 @@ export class AppComponent implements OnInit {
   @ViewChild('weekColumns', { static: false })
   private readonly weekColumnsRef?: ElementRef<HTMLElement>;
 
-  @ViewChild('menuPanel', { static: false })
+  @ViewChild('menuPanel', { static: false, read: ElementRef })
   private readonly menuPanelRef?: ElementRef<HTMLElement>;
+
+  @ViewChild('calendarScroll', { static: false })
+  private readonly calendarScrollRef?: ElementRef<HTMLElement>;
 
   readonly weekDays = WEEK_DAYS;
   readonly slotHeightPx = 24;
@@ -134,6 +137,7 @@ export class AppComponent implements OnInit {
 
   actionMenu: AlarmActionMenu | null = null;
   editingAlarm: EditAlarmDraft | null = null;
+  pendingDeleteAlarm: AlarmResponse | null = null;
   isCreatingAlarm = false;
 
   previewSchedule: AlarmSchedule | null = null;
@@ -148,6 +152,7 @@ export class AppComponent implements OnInit {
   );
   private readonly rampDurationSlotsByMode = new Map<string, number>();
   private readonly alarmColorClassById = new Map<string, string>();
+  private scrollRetryCount = 0;
 
   get gridHeightPx(): number {
     return SLOTS_PER_DAY * this.slotHeightPx;
@@ -263,12 +268,13 @@ export class AppComponent implements OnInit {
     event.stopPropagation();
   }
 
-  onEditAlarmFromMenu(): void {
-    if (!this.actionMenu) {
+  onEditAlarmFromMenu(alarmId?: string): void {
+    const targetAlarmId = alarmId ?? this.actionMenu?.alarmId;
+    if (!targetAlarmId) {
       return;
     }
 
-    const schedule = this.currentSchedulesById.get(this.actionMenu.alarmId);
+    const schedule = this.currentSchedulesById.get(targetAlarmId);
     if (!schedule) {
       this.actionMenu = null;
       return;
@@ -288,28 +294,31 @@ export class AppComponent implements OnInit {
     this.actionMenu = null;
   }
 
-  onDeleteAlarmFromMenu(): void {
-    if (!this.actionMenu) {
+  onDeleteAlarmFromMenu(alarmId?: string): void {
+    const targetAlarmId = alarmId ?? this.actionMenu?.alarmId;
+    if (!targetAlarmId) {
       return;
     }
 
-    const alarm = this.alarms.find((entry) => entry.id === this.actionMenu!.alarmId);
+    const alarm = this.alarms.find((entry) => entry.id === targetAlarmId);
     if (!alarm) {
       this.actionMenu = null;
       return;
     }
 
-    const label = alarm.name?.trim() || 'Unnamed alarm';
-    const confirmed = window.confirm(`Delete alarm "${label}"?`);
-    if (!confirmed) {
+    this.pendingDeleteAlarm = alarm;
+    this.actionMenu = null;
+  }
+
+  confirmDeleteAlarm(): void {
+    if (!this.pendingDeleteAlarm) {
       return;
     }
 
-    const id = alarm.id;
-    this.isRefreshing = true;
-    this.actionMenu = null;
-    this.errorMessage = '';
+    const id = this.pendingDeleteAlarm.id;
 
+    this.isRefreshing = true;
+    this.errorMessage = '';
     this.alarmApi
       .deleteAlarm(id)
       .pipe(
@@ -320,13 +329,18 @@ export class AppComponent implements OnInit {
       .subscribe({
         next: () => {
           this.alarms = this.alarms.filter((entry) => entry.id !== id);
+          this.pendingDeleteAlarm = null;
           this.recomputeSchedules();
-          this.rebuildCalendarView();
+          this.rebuildCalendarView(true);
         },
         error: () => {
           this.errorMessage = 'Failed to delete alarm.';
         }
       });
+  }
+
+  cancelDeleteAlarm(): void {
+    this.pendingDeleteAlarm = null;
   }
 
   closeMenu(): void {
@@ -526,7 +540,7 @@ export class AppComponent implements OnInit {
           this.alarms = alarms;
           this.ramps = ramps;
           this.recomputeSchedules();
-          this.rebuildCalendarView();
+          this.rebuildCalendarView(true);
         },
         error: () => {
           this.errorMessage = 'Failed to load alarms and ramps from API.';
@@ -559,7 +573,7 @@ export class AppComponent implements OnInit {
             existing.id === updatedAlarm.id ? updatedAlarm : existing
           );
           this.recomputeSchedules();
-          this.rebuildCalendarView();
+          this.rebuildCalendarView(true);
           if (onDone) {
             onDone();
           }
@@ -593,7 +607,7 @@ export class AppComponent implements OnInit {
         next: (createdAlarm) => {
           this.alarms = [...this.alarms, createdAlarm];
           this.recomputeSchedules();
-          this.rebuildCalendarView();
+          this.rebuildCalendarView(true);
           if (onDone) {
             onDone();
           }
@@ -652,7 +666,7 @@ export class AppComponent implements OnInit {
     this.currentSchedulesById = nextSchedules;
   }
 
-  private rebuildCalendarView(): void {
+  private rebuildCalendarView(autoScrollToEarliest = false): void {
     const effectiveSchedules = new Map<string, AlarmSchedule>(this.currentSchedulesById);
 
     if (this.previewSchedule) {
@@ -721,6 +735,10 @@ export class AppComponent implements OnInit {
     });
 
     this.calendarSegments = nextSegments;
+
+    if (autoScrollToEarliest) {
+      this.scheduleScrollToEarliestEntry();
+    }
   }
 
   private parseAlarm(alarm: AlarmResponse): AlarmSchedule | null {
@@ -928,6 +946,42 @@ export class AppComponent implements OnInit {
     const colorClass = ALARM_COLOR_CLASSES[hash % ALARM_COLOR_CLASSES.length];
     this.alarmColorClassById.set(alarmId, colorClass);
     return colorClass;
+  }
+
+  private scheduleScrollToEarliestEntry(): void {
+    this.scrollRetryCount = 0;
+    this.scrollCalendarToEarliestEntry();
+  }
+
+  private scrollCalendarToEarliestEntry(): void {
+    const scrollContainer = this.calendarScrollRef?.nativeElement;
+    if (!scrollContainer) {
+      if (this.scrollRetryCount < 20) {
+        this.scrollRetryCount += 1;
+        requestAnimationFrame(() => this.scrollCalendarToEarliestEntry());
+      }
+      return;
+    }
+
+    const startSegments = this.calendarSegments.filter((segment) => segment.isStart);
+    const segmentsForScroll = startSegments.length > 0 ? startSegments : this.calendarSegments;
+
+    const earliestTopPx = segmentsForScroll.length > 0
+      ? Math.min(...segmentsForScroll.map((segment) => segment.topPx))
+      : 0;
+
+    const targetScrollTop = Math.max(0, earliestTopPx - this.slotHeightPx * 2);
+
+    scrollContainer.scrollTop = targetScrollTop;
+
+    requestAnimationFrame(() => {
+      const currentContainer = this.calendarScrollRef?.nativeElement;
+      if (!currentContainer) {
+        return;
+      }
+
+      currentContainer.scrollTop = targetScrollTop;
+    });
   }
 }
 

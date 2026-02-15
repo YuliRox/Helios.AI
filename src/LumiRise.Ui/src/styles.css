@@ -99,6 +99,14 @@ body {
   border-radius: 0 !important;
 }
 
+.dialog .mdc-floating-label {
+  color: #b6d2ea !important;
+}
+
+.dialog .mdc-text-field--focused .mdc-floating-label {
+  color: #b6d2ea !important;
+}
+
 .dialog .mdc-text-field:hover .mdc-notched-outline__leading,
 .dialog .mdc-text-field:hover .mdc-notched-outline__notch,
 .dialog .mdc-text-field:hover .mdc-notched-outline__trailing {
