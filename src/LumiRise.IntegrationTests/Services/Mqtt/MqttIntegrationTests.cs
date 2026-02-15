@@ -62,7 +62,7 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
 
         await manager.ConnectAsync(TestContext.Current.CancellationToken);
 
-        Assert.True(manager.IsConnected);
+        manager.IsConnected.Should().BeTrue();
 
         await manager.DisposeAsync();
     }
@@ -91,10 +91,9 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
         subscription.Dispose();
         await manager.DisposeAsync();
 
-        Assert.NotEmpty(messages);
-        Assert.Single(messages);
-        Assert.Equal("test/topic", messages[0].Topic);
-        Assert.Equal("test-payload", messages[0].Payload);
+        messages.Should().ContainSingle();
+        messages[0].Topic.Should().Be("test/topic");
+        messages[0].Payload.Should().Be("test-payload");
     }
 
     [Fact]
@@ -128,8 +127,8 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
         await monitor.DisposeAsync();
         await connectionManager.DisposeAsync();
 
-        Assert.NotEmpty(states);
-        Assert.True(states[0].IsOn);
+        states.Should().NotBeEmpty();
+        states[0].IsOn.Should().BeTrue();
     }
 
     [Fact]
@@ -174,8 +173,8 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
 
         await connectionManager.DisposeAsync();
 
-        Assert.NotEmpty(progressValues);
-        Assert.Equal(80, progressValues.Last());
+        progressValues.Should().NotBeEmpty();
+        progressValues.Last().Should().Be(80);
     }
 
     [Fact]
@@ -222,7 +221,7 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
         await connectionManager.DisposeAsync();
 
         // Should have received responses from mock device
-        Assert.NotEmpty(messages);
+        messages.Should().NotBeEmpty();
     }
 
     [Fact]
@@ -278,8 +277,8 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
         await monitor.DisposeAsync();
         await connectionManager.DisposeAsync();
 
-        Assert.NotEmpty(interruptions);
-        Assert.Equal(InterruptionReason.ManualPowerOff, interruptions[0].Reason);
+        interruptions.Should().NotBeEmpty();
+        interruptions[0].Reason.Should().Be(InterruptionReason.ManualPowerOff);
     }
 
     [Fact]
@@ -335,24 +334,45 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
         await monitor.DisposeAsync();
         await connectionManager.DisposeAsync();
 
-        Assert.NotEmpty(interruptions);
-        Assert.Equal(InterruptionReason.ManualBrightnessAdjustment, interruptions[0].Reason);
+        interruptions.Should().NotBeEmpty();
+        interruptions[0].Reason.Should().Be(InterruptionReason.ManualBrightnessAdjustment);
     }
 
     [Fact]
-    public async Task BrightnessRamp_CanceledByManualInterruption()
+    public async Task BrightnessRamp_CanceledByManualBrightnessChangeInterruption()
+    {
+        await AssertRampCancelsOnUserInterruptionAsync(
+            userActionLabel: "manual brightness change",
+            expectedInterruptionReason: InterruptionReason.ManualBrightnessAdjustment,
+            triggerUserInteractionAsync: mockDimmer => mockDimmer.SimulateManualBrightnessChangeAsync(5));
+    }
+
+    [Fact]
+    public async Task BrightnessRamp_CanceledByManualOnOffToggleInterruption()
+    {
+        await AssertRampCancelsOnUserInterruptionAsync(
+            userActionLabel: "manual on-off toggle",
+            expectedInterruptionReason: InterruptionReason.ManualPowerOff,
+            triggerUserInteractionAsync: async mockDimmer =>
+            {
+                await mockDimmer.SimulateManualPowerOffAsync();
+                await Task.Delay(50, TestContext.Current.CancellationToken);
+                await mockDimmer.SimulateManualPowerOnAsync();
+            });
+    }
+
+    private async Task AssertRampCancelsOnUserInterruptionAsync(
+        string userActionLabel,
+        InterruptionReason expectedInterruptionReason,
+        Func<MockDimmerDevice, Task> triggerUserInteractionAsync)
     {
         var options = GetMqttOptions();
 
-        // Start mock dimmer device with its own independent connection
         await using var mockDimmer = new MockDimmerDevice(
             options.Server, options.Port, options.Topics, _testOutput);
         await mockDimmer.StartAsync(TestContext.Current.CancellationToken);
-
-        // Give mock device time to fully subscribe
         await Task.Delay(100, TestContext.Current.CancellationToken);
 
-        // Set up LumiRise connection and services
         var connectionManager = new MqttConnectionManager(CreateTestLogger<MqttConnectionManager>(),
             Microsoft.Extensions.Options.Options.Create(options));
 
@@ -368,7 +388,7 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
             {
                 Server = options.Server,
                 Port = options.Port,
-                RampStepDelayMs = 100  // Slower ramp to allow interruption
+                RampStepDelayMs = 100
             }));
 
         var detector = new InterruptionDetector(CreateTestLogger<InterruptionDetector>(), monitor);
@@ -376,7 +396,6 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
         await connectionManager.ConnectAsync(TestContext.Current.CancellationToken);
         await monitor.StartMonitoringAsync(TestContext.Current.CancellationToken);
 
-        // Track progress and interruptions
         var progressValues = new List<int>();
         var progress = new Progress<int>(v =>
         {
@@ -385,39 +404,49 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
             _testOutput.WriteLine($"[Test] Ramp progress: {v}%");
         });
 
-        var interruptions = new List<InterruptionEvent>();
+        var interruptionsAfterUserAction = new List<InterruptionEvent>();
+        var userActionTriggered = false;
+
         var interruptionSubscription = detector.Interruptions.Subscribe(evt =>
         {
-            interruptions.Add(evt);
             _testOutput.WriteLine($"[Test] Interruption detected: {evt.Reason}");
+
+            if (!userActionTriggered)
+            {
+                return;
+            }
+
+            interruptionsAfterUserAction.Add(evt);
         });
 
-        // Create cancellation token that will be triggered on interruption
         using var rampCts = new CancellationTokenSource();
-
-        // Cancel ramp when interruption is detected
-        var cancelOnInterruptSubscription = detector.Interruptions.Subscribe(_ =>
+        var cancelOnExpectedInterruptionSubscription = detector.Interruptions.Subscribe(evt =>
         {
-            _testOutput.WriteLine("[Test] Canceling ramp due to interruption");
+            if (!userActionTriggered || evt.Reason != expectedInterruptionReason)
+            {
+                return;
+            }
+
+            _testOutput.WriteLine($"[Test] Canceling ramp due to {userActionLabel}");
             rampCts.Cancel();
         });
 
-        // Set expected state for interruption detection (will be updated as ramp progresses)
         detector.SetExpectedState(new DimmerState { IsOn = true, BrightnessPercent = 20 });
         detector.EnableDetection();
 
-        // Start ramp from 20% to 100% over 2 seconds (should take ~20 steps at 100ms each)
-        var rampTask = publisher.RampBrightnessAsync(20, 100, TimeSpan.FromSeconds(2),
-            progress, rampCts.Token);
+        var rampTask = publisher.RampBrightnessAsync(
+            20,
+            100,
+            TimeSpan.FromSeconds(2),
+            progress,
+            rampCts.Token);
 
-        // Wait for ramp to start and reach ~40-50%
         await Task.Delay(500, TestContext.Current.CancellationToken);
 
-        // Simulate user manually turning off the light mid-ramp
-        _testOutput.WriteLine("[Test] Simulating manual power off during ramp");
-        await mockDimmer.SimulateManualPowerOffAsync();
+        userActionTriggered = true;
+        _testOutput.WriteLine($"[Test] Simulating {userActionLabel} during ramp");
+        await triggerUserInteractionAsync(mockDimmer);
 
-        // Wait for the ramp task to complete (should be canceled)
         try
         {
             await rampTask;
@@ -428,23 +457,16 @@ public class MqttIntegrationTests : ContainerTest<MosquittoBuilder, MosquittoCon
             _testOutput.WriteLine("[Test] Ramp was canceled as expected");
         }
 
-        // Give time for all messages to be processed
         await Task.Delay(100, TestContext.Current.CancellationToken);
 
-        cancelOnInterruptSubscription.Dispose();
+        cancelOnExpectedInterruptionSubscription.Dispose();
         interruptionSubscription.Dispose();
         await monitor.DisposeAsync();
         await connectionManager.DisposeAsync();
 
-        // Verify interruption was detected
-        Assert.NotEmpty(interruptions);
-        Assert.Equal(InterruptionReason.ManualPowerOff, interruptions[0].Reason);
-
-        // Verify ramp did not complete to 100%
-        Assert.NotEmpty(progressValues);
-        Assert.True(progressValues.Last() < 100,
-            $"Ramp should have been interrupted before reaching 100%, but reached {progressValues.Last()}%");
-
-        _testOutput.WriteLine($"[Test] Ramp stopped at {progressValues.Last()}% after {progressValues.Count} steps");
+        interruptionsAfterUserAction.Should().Contain(i => i.Reason == expectedInterruptionReason);
+        progressValues.Should().NotBeEmpty();
+        progressValues.Last().Should().BeLessThan(100,
+            $"ramp should have been interrupted before reaching 100%, but reached {progressValues.Last()}%");
     }
 }

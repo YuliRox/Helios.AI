@@ -8,6 +8,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Alba" />
     <PackageReference Include="AwesomeAssertions" />
     <PackageReference Include="coverlet.collector" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
@@ -19,6 +20,7 @@
     <PackageReference Include="xunit.v3" />
   </ItemGroup>
   <ItemGroup>
+    <Using Include="AwesomeAssertions" />
     <Using Include="Xunit" />
   </ItemGroup>
   <ItemGroup>

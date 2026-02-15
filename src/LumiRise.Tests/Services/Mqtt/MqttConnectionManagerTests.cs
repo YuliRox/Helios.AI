@@ -20,7 +20,7 @@ public class MqttConnectionManagerTests(ITestOutputHelper testOutput)
         var manager = new LumiRise.Api.Services.Mqtt.Implementation.MqttConnectionManager(
             _logger, Options.Create(_options));
 
-        Assert.False(manager.IsConnected);
+        manager.IsConnected.Should().BeFalse();
     }
 
     [Fact]
@@ -30,7 +30,7 @@ public class MqttConnectionManagerTests(ITestOutputHelper testOutput)
             _logger, Options.Create(_options));
 
         // ConnectionState observable should be accessible
-        Assert.NotNull(manager.ConnectionState);
+        manager.ConnectionState.Should().NotBeNull();
     }
 
     [Fact]
@@ -40,7 +40,7 @@ public class MqttConnectionManagerTests(ITestOutputHelper testOutput)
             _logger, Options.Create(_options));
 
         // MessageReceived observable should be accessible
-        Assert.NotNull(manager.MessageReceived);
+        manager.MessageReceived.Should().NotBeNull();
     }
 
     [Fact]
@@ -59,8 +59,8 @@ public class MqttConnectionManagerTests(ITestOutputHelper testOutput)
         var manager = new LumiRise.Api.Services.Mqtt.Implementation.MqttConnectionManager(
             _logger, Options.Create(_options));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
-            () => manager.PublishAsync("test/topic", "payload", CancellationToken.None));
+        Func<Task> act = () => manager.PublishAsync("test/topic", "payload", CancellationToken.None);
+        await act.Should().ThrowAsync<InvalidOperationException>();
     }
 
     [Fact]
@@ -69,7 +69,7 @@ public class MqttConnectionManagerTests(ITestOutputHelper testOutput)
         var manager = new LumiRise.Api.Services.Mqtt.Implementation.MqttConnectionManager(
             _logger, Options.Create(_options));
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
-            () => manager.SubscribeAsync("test/topic", CancellationToken.None));
+        Func<Task> act = () => manager.SubscribeAsync("test/topic", CancellationToken.None);
+        await act.Should().ThrowAsync<InvalidOperationException>();
     }
 }

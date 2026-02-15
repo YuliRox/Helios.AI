@@ -15,6 +15,7 @@
     <PackageReference Include="xunit.v3" />
   </ItemGroup>
   <ItemGroup>
+    <Using Include="AwesomeAssertions" />
     <Using Include="Xunit" />
   </ItemGroup>
   <ItemGroup>

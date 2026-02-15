@@ -59,8 +59,8 @@ public class DimmerStateMonitorTests
         await monitor.StartMonitoringAsync(CancellationToken.None);
         _messageSubject.OnNext((_options.Topics.DimmerOnOffStatus, "ON"));
 
-        Assert.Single(states);
-        Assert.True(states[0].IsOn);
+        states.Should().ContainSingle();
+        states[0].IsOn.Should().BeTrue();
     }
 
     [Fact]
@@ -77,9 +77,9 @@ public class DimmerStateMonitorTests
         await monitor.StartMonitoringAsync(CancellationToken.None);
         _messageSubject.OnNext((_options.Topics.DimmerPercentageStatus, "{\"POWER\":\"ON\",\"Dimmer\":75}"));
 
-        Assert.Single(states);
-        Assert.True(states[0].IsOn);
-        Assert.Equal(75, states[0].BrightnessPercent);
+        states.Should().ContainSingle();
+        states[0].IsOn.Should().BeTrue();
+        states[0].BrightnessPercent.Should().Be(75);
     }
 
     [Fact]
@@ -95,8 +95,8 @@ public class DimmerStateMonitorTests
 
         var currentState = monitor.CurrentState;
 
-        Assert.NotNull(currentState);
-        Assert.True(currentState.IsOn);
+        currentState.Should().NotBeNull();
+        currentState!.IsOn.Should().BeTrue();
     }
 
     [Fact]
@@ -109,7 +109,7 @@ public class DimmerStateMonitorTests
 
         var currentState = monitor.CurrentState;
 
-        Assert.Null(currentState);
+        currentState.Should().BeNull();
     }
 
     [Fact]
@@ -127,7 +127,7 @@ public class DimmerStateMonitorTests
         _messageSubject.OnNext((_options.Topics.DimmerOnOffStatus, "ON"));
         _messageSubject.OnNext((_options.Topics.DimmerOnOffStatus, "ON"));
 
-        Assert.Single(states);
+        states.Should().ContainSingle();
     }
 
     [Fact]
@@ -145,7 +145,7 @@ public class DimmerStateMonitorTests
         _messageSubject.OnNext((_options.Topics.DimmerPercentageStatus, "invalid json"));
 
         // Should not crash and should not publish state
-        Assert.Empty(states);
+        states.Should().BeEmpty();
     }
 
     [Fact]
@@ -164,6 +164,6 @@ public class DimmerStateMonitorTests
 
         _messageSubject.OnNext((_options.Topics.DimmerOnOffStatus, "ON"));
 
-        Assert.Empty(states);
+        states.Should().BeEmpty();
     }
 }

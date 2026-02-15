@@ -5,10 +5,6 @@ namespace LumiRise.Api.Data.Entities;
 /// </summary>
 public class AlarmScheduleEntity
 {
-    private int _startBrightnessPercent = 20;
-    private int _targetBrightnessPercent = 100;
-    private int _rampDurationSeconds = 1800;
-
     public Guid Id { get; set; } = Guid.NewGuid();
 
     public string Name { get; set; } = string.Empty;
@@ -25,23 +21,9 @@ public class AlarmScheduleEntity
     /// </summary>
     public string TimeZoneId { get; set; } = "UTC";
 
-    public int StartBrightnessPercent
-    {
-        get => _startBrightnessPercent;
-        set => _startBrightnessPercent = Math.Clamp(value, 0, 100);
-    }
+    public Guid RampProfileId { get; set; }
 
-    public int TargetBrightnessPercent
-    {
-        get => _targetBrightnessPercent;
-        set => _targetBrightnessPercent = Math.Clamp(value, 0, 100);
-    }
-
-    public int RampDurationSeconds
-    {
-        get => _rampDurationSeconds;
-        set => _rampDurationSeconds = Math.Max(1, value);
-    }
+    public RampProfileEntity RampProfile { get; set; } = null!;
 
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 
