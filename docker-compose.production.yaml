@@ -1,0 +1,75 @@
+services:
+  postgres-db:
+    container_name: lumi-rise-db
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${PG_DB}
+      POSTGRES_USER: ${PG_USER}
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - lumi-rise
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER} -d ${PG_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  lumi-rise:
+    platform: linux/arm64
+    build:
+      network: host
+      context: src/
+      dockerfile: LumiRise.Api/Dockerfile
+    image: ${REGISTRY}/lumi-rise:${APP_VERSION}-${ARCH}
+    restart: unless-stopped
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Postgres: ${DB_CONNECTION}
+      Mqtt__Server: ${MQTT_SERVER}
+      Mqtt__Port: 1883
+      Mqtt__ClientId: LumiRise
+      Mqtt__Password: ${MQTT_PW}
+      Mqtt__Username: ${MQTT_USER}
+      AlarmSettings__TimeZoneId: Europe/Berlin
+    ports:
+      - "8090:8080"
+    networks:
+      - lumi-rise
+      - mosquitto
+
+  lumi-rise-ui:
+    platform: linux/arm64
+    build:
+      network: host
+      context: src/LumiRise.Ui
+      dockerfile: Dockerfile
+    image: ${REGISTRY}/lumi-rise-ui:${APP_VERSION}-${ARCH}
+    restart: unless-stopped
+    depends_on:
+      lumi-rise:
+        condition: service_started
+    environment:
+      BACKEND_URL: http://lumi-rise:8080
+    ports:
+      - "8091:80"
+    networks:
+      - lumi-rise
+
+volumes:
+  postgres-data:
+
+networks:
+  lumi-rise:
+    name: lumi-rise
+  mosquitto:
+    name: mosquitto
+    external: true

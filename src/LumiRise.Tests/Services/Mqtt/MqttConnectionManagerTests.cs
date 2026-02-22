@@ -1,6 +1,8 @@
 using LumiRise.Api.Configuration;
+using LumiRise.Api.Services.Mqtt.Implementation;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Reflection;
 using Xunit;
 
 namespace LumiRise.Tests.Services.Mqtt;
@@ -66,10 +68,60 @@ public class MqttConnectionManagerTests(ITestOutputHelper testOutput)
     [Fact]
     public async Task SubscribeAsync_WhenNotConnected_ThrowsInvalidOperationException()
     {
-        var manager = new LumiRise.Api.Services.Mqtt.Implementation.MqttConnectionManager(
+        var manager = new MqttConnectionManager(
             _logger, Options.Create(_options));
 
         Func<Task> act = () => manager.SubscribeAsync("test/topic", CancellationToken.None);
         await act.Should().ThrowAsync<InvalidOperationException>();
+    }
+
+    [Fact]
+    public async Task Constructor_SetsClientCredentials_WhenUsernameIsConfigured()
+    {
+        var manager = new MqttConnectionManager(
+            _logger,
+            Options.Create(new MqttOptions
+            {
+                Username = "prod-user",
+                Password = "prod-pass"
+            }));
+
+        var credentials = GetCredentialsObject(manager);
+
+        credentials.Should().NotBeNull();
+
+        await manager.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Constructor_DoesNotSetClientCredentials_WhenUsernameIsMissing()
+    {
+        var manager = new MqttConnectionManager(
+            _logger,
+            Options.Create(new MqttOptions
+            {
+                Password = "prod-pass"
+            }));
+
+        var credentials = GetCredentialsObject(manager);
+        credentials.Should().BeNull();
+
+        await manager.DisposeAsync();
+    }
+
+    private static object? GetCredentialsObject(MqttConnectionManager manager)
+    {
+        var clientOptionsField = typeof(MqttConnectionManager).GetField(
+            "_clientOptions",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        clientOptionsField.Should().NotBeNull("manager should keep MQTTnet client options for ConnectAsync");
+
+        var clientOptions = clientOptionsField!.GetValue(manager);
+        clientOptions.Should().NotBeNull();
+
+        var credentialsProperty = clientOptions!.GetType().GetProperty("Credentials");
+        credentialsProperty.Should().NotBeNull("MQTTnet client options should expose credentials when configured");
+
+        return credentialsProperty!.GetValue(clientOptions);
     }
 }

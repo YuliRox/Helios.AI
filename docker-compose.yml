@@ -3,18 +3,20 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: lumi_rise
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${LOCAL_PG_DB}
+      POSTGRES_USER: ${LOCAL_PG_USER}
+      POSTGRES_PASSWORD: ${LOCAL_PG_PASSWORD}
     ports:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d lumi_rise"]
+      test: ["CMD-SHELL", "pg_isready -U ${LOCAL_PG_USER} -d ${LOCAL_PG_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
+    networks:
+      - lumi-rise
 
   mqtt-broker:
     image: eclipse-mosquitto:2
@@ -25,12 +27,16 @@ services:
       - ./docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - mosquitto-data:/mosquitto/data
       - mosquitto-log:/mosquitto/log
+    networks:
+      - lumi-rise
 
   lumi-rise:
+    platform: linux/amd64
     build:
       network: host
       context: src/
       dockerfile: LumiRise.Api/Dockerfile
+    image: ${LOCAL_REGISTRY}/lumi-rise:${APP_VERSION}-${LOCAL_ARCH}
     restart: unless-stopped
     depends_on:
       postgres-db:
@@ -40,19 +46,23 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__Postgres: Host=postgres-db;Port=5432;Database=lumi_rise;Username=postgres;Password=postgres
+      ConnectionStrings__Postgres: ${LOCAL_DB_CONNECTION}
       Mqtt__Server: mqtt-broker
       Mqtt__Port: 1883
       Mqtt__ClientId: LumiRise
       AlarmSettings__TimeZoneId: UTC
     ports:
       - "8080:8080"
+    networks:
+      - lumi-rise
 
   lumi-rise-ui:
+    platform: linux/amd64
     build:
       network: host
       context: src/LumiRise.Ui
       dockerfile: Dockerfile
+    image: ${LOCAL_REGISTRY}/lumi-rise-ui:${APP_VERSION}-${LOCAL_ARCH}
     restart: unless-stopped
     depends_on:
       lumi-rise:
@@ -61,12 +71,16 @@ services:
       BACKEND_URL: http://lumi-rise:8080
     ports:
       - "8081:80"
+    networks:
+      - lumi-rise
 
   mock-dimmer-device:
+    platform: linux/amd64
     build:
       network: host
       context: src
       dockerfile: LumiRise.MockDimmerDevice/Dockerfile
+    image: ${LOCAL_REGISTRY}/lumi-rise-mock-dimmer:${APP_VERSION}-${LOCAL_ARCH}
     restart: unless-stopped
     depends_on:
       mqtt-broker:
@@ -81,8 +95,13 @@ services:
       MockDimmer__DimmerPercentageStatus: stat/dimmer/RESULT
       MockDimmer__ManualPowerTopic: mock/dimmer/manual/power
       MockDimmer__ManualBrightnessTopic: mock/dimmer/manual/brightness
+    networks:
+      - lumi-rise
 
 volumes:
   postgres-data:
   mosquitto-data:
   mosquitto-log:
+
+networks:
+  lumi-rise:

@@ -3,7 +3,7 @@ set -eu
 
 backend_url="${BACKEND_URL:-${backend_url:-}}"
 
-if [ -z "${backend_url}" ]; then
+if [ -z "${BACKEND_URL}" ]; then
     echo >&2 "BACKEND_URL is required (expected format: http(s)://host:port)."
     exit 1
 fi
