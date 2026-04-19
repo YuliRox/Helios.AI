@@ -202,6 +202,37 @@ public class AlarmStateMachineTests : IDisposable
     }
 
     [Fact]
+    public async Task ExecuteAsync_EnablesInterruptionDetection_AfterBootstrapCommands()
+    {
+        var sequence = new MockSequence();
+
+        _publisher.InSequence(sequence)
+            .Setup(p => p.TurnOnAsync(It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        _publisher.InSequence(sequence)
+            .Setup(p => p.SetBrightnessAsync(_definition.StartBrightnessPercent, It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        _detector.InSequence(sequence)
+            .Setup(d => d.SetExpectedState(It.Is<DimmerState>(s =>
+                s.IsOn && s.BrightnessPercent == _definition.StartBrightnessPercent)));
+        _detector.InSequence(sequence)
+            .Setup(d => d.EnableDetection());
+        _publisher.InSequence(sequence)
+            .Setup(p => p.RampBrightnessAsync(
+                _definition.StartBrightnessPercent,
+                _definition.TargetBrightnessPercent,
+                _definition.RampDuration,
+                It.IsAny<IProgress<int>?>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        TransitionTo(AlarmState.Running);
+        await _sut.ExecuteAsync(TestContext.Current.CancellationToken);
+
+        _sut.CurrentState.Should().Be(AlarmState.Completed);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_WhenCancelled_TransitionsToFailed()
     {
         using var cts = new CancellationTokenSource();
@@ -241,15 +272,15 @@ public class AlarmStateMachineTests : IDisposable
             .Setup(p => p.RampBrightnessAsync(
                 It.IsAny<int>(), It.IsAny<int>(), It.IsAny<TimeSpan>(),
                 It.IsAny<IProgress<int>?>(), It.IsAny<CancellationToken>()))
-            .Returns<int, int, TimeSpan, IProgress<int>?, CancellationToken>((_, _, _, _, _) =>
+            .Returns<int, int, TimeSpan, IProgress<int>?, CancellationToken>(async (_, _, _, _, token) =>
             {
+                await Task.Delay(TimeSpan.FromSeconds(3), token);
                 // Simulate interruption arriving mid-ramp
                 _interruptionsSubject.OnNext(new InterruptionEvent
                 {
                     Reason = InterruptionReason.ManualPowerOff,
                     Message = "User turned off"
                 });
-                return Task.CompletedTask;
             });
 
         TransitionTo(AlarmState.Running);
@@ -257,6 +288,43 @@ public class AlarmStateMachineTests : IDisposable
 
         // Interruption fires ManualOverride, moving out of Running.
         // The subsequent Complete trigger is ignored (TryFireCore logs warning).
+        _sut.CurrentState.Should().Be(AlarmState.Interrupted);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_InterruptionDuringRamp_CancelsExecutionAndStopsRamp()
+    {
+        var rampStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        _publisher
+            .Setup(p => p.RampBrightnessAsync(
+                It.IsAny<int>(), It.IsAny<int>(), It.IsAny<TimeSpan>(),
+                It.IsAny<IProgress<int>?>(), It.IsAny<CancellationToken>()))
+            .Returns<int, int, TimeSpan, IProgress<int>?, CancellationToken>((_, _, _, _, token) =>
+            {
+                rampStarted.TrySetResult();
+
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(3), token);
+                    // Simulate a real manual interruption while ramping.
+                    _interruptionsSubject.OnNext(new InterruptionEvent
+                    {
+                        Reason = InterruptionReason.ManualPowerOff,
+                        Message = "User turned off"
+                    });
+                }, token);
+
+                // Represents an in-flight ramp that should stop only when cancelled.
+                return Task.Delay(Timeout.Infinite, token);
+            });
+
+        TransitionTo(AlarmState.Running);
+
+        var executeTask = _sut.ExecuteAsync(TestContext.Current.CancellationToken);
+        await rampStarted.Task.WaitAsync(TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken);
+        await executeTask.WaitAsync(TimeSpan.FromSeconds(6), TestContext.Current.CancellationToken);
+
         _sut.CurrentState.Should().Be(AlarmState.Interrupted);
     }
 

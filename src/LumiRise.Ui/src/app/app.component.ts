@@ -45,6 +45,7 @@ interface AlarmSchedule {
   name: string;
   enabled: boolean;
   rampMode: string;
+  time: string;
   days: number[];
   startSlot: number;
   durationSlots: number;
@@ -274,6 +275,7 @@ export class AppComponent implements OnInit {
       name: DEFAULT_NEW_ALARM_NAME,
       enabled: true,
       rampMode,
+      time: slotToTime(startSlot),
       days: [startDay],
       startSlot,
       durationSlots: this.getDurationSlotsForRampMode(rampMode)
@@ -405,7 +407,7 @@ export class AppComponent implements OnInit {
       name: schedule.name,
       enabled: schedule.enabled,
       rampMode: schedule.rampMode,
-      time: slotToTime(schedule.startSlot),
+      time: schedule.time,
       selectedDays: this.ensureAtLeastOneSelectedDay(this.weekDays.map((_day, dayIndex) => schedule.days.includes(dayIndex)))
     };
 
@@ -497,6 +499,7 @@ export class AppComponent implements OnInit {
       name: trimmedName,
       enabled: this.editingAlarm.enabled,
       rampMode,
+      time: this.editingAlarm.time.trim(),
       startSlot: parsedSlot,
       durationSlots,
       days
@@ -607,7 +610,7 @@ export class AppComponent implements OnInit {
         name: candidate.name,
         enabled: candidate.enabled,
         rampMode: candidate.rampMode,
-        time: slotToTime(candidate.startSlot),
+        time: candidate.time,
         selectedDays: this.ensureAtLeastOneSelectedDay(this.weekDays.map((_day, dayIndex) => candidate.days.includes(dayIndex)))
       };
       this.editErrorMessage = '';
@@ -678,7 +681,7 @@ export class AppComponent implements OnInit {
       name: candidate.name,
       enabled: candidate.enabled,
       rampMode: candidate.rampMode,
-      time: slotToTime(candidate.startSlot),
+      time: candidate.time,
       daysOfWeek: candidate.days.map((dayIndex) => this.weekDays[dayIndex])
     };
 
@@ -714,7 +717,7 @@ export class AppComponent implements OnInit {
       name: candidate.name,
       enabled: candidate.enabled,
       rampMode: candidate.rampMode,
-      time: slotToTime(candidate.startSlot),
+      time: candidate.time,
       daysOfWeek: candidate.days.map((dayIndex) => this.weekDays[dayIndex])
     };
 
@@ -839,7 +842,7 @@ export class AppComponent implements OnInit {
               widthCss: `calc(${widthPct}% - 12px)`,
               isStart: runSegmentIndex === 0 && chunkIndex === 0,
               showResize: showResize && runIndex === 0 && runSegmentIndex === 0 && chunkIndex === 0,
-              timeLabel: slotToTime(schedule.startSlot),
+              timeLabel: schedule.time,
               durationLabel: slotsToDurationLabel(schedule.durationSlots)
             });
           }
@@ -896,6 +899,7 @@ export class AppComponent implements OnInit {
       name: alarm.name?.trim() || 'Unnamed alarm',
       enabled: alarm.enabled,
       rampMode: alarm.rampMode?.trim() || this.getDefaultRampMode(),
+      time: alarm.time.trim(),
       days: uniqueDays,
       startSlot,
       durationSlots: this.getDurationSlotsForRampMode(alarm.rampMode)
@@ -937,6 +941,7 @@ export class AppComponent implements OnInit {
 
     return {
       ...origin,
+      time: slotToTime(startSlot),
       startSlot,
       days: shiftedDays
     };

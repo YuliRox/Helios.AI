@@ -21,6 +21,9 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
     private readonly Subject<AlarmStateTransition> _stateTransitions = new();
     private readonly object _stateLock = new();
     private bool _disposed;
+    private CancellationTokenSource? _activeExecutionCancellation;
+    private DateTime? _interruptionArmedAtUtc;
+    private static readonly TimeSpan StartupInterruptionGracePeriod = TimeSpan.FromSeconds(2);
 
     private static readonly Dictionary<(AlarmState State, AlarmTrigger Trigger), AlarmState> TransitionTable = new()
     {
@@ -138,6 +141,8 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
 
     public async Task ExecuteAsync(CancellationToken ct = default)
     {
+        using var executionCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
         lock (_stateLock)
         {
             if (CurrentState != AlarmState.Running)
@@ -146,6 +151,8 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
                     $"Cannot execute alarm '{Definition.Name}' in state '{CurrentState}'. " +
                     "Alarm must be in Running state.");
             }
+
+            _activeExecutionCancellation = executionCts;
         }
 
         _logger.LogInformation(
@@ -162,19 +169,24 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
             interruptionSubscription = _interruptionDetector.Interruptions
                 .Subscribe(OnInterruptionDetected);
 
-            // Enable interruption detection during execution
+            // Turn on the dimmer
+            await _commandPublisher.TurnOnAsync(executionCts.Token);
+
+            // Set initial brightness
+            await _commandPublisher.SetBrightnessAsync(Definition.StartBrightnessPercent, executionCts.Token);
+
+            // Enable interruption detection only after bootstrap commands complete.
+            // Some dimmers briefly report transient values during ON + initial brightness setup.
             _interruptionDetector.SetExpectedState(new DimmerState
             {
                 IsOn = true,
                 BrightnessPercent = Definition.StartBrightnessPercent
             });
+            lock (_stateLock)
+            {
+                _interruptionArmedAtUtc = DateTime.UtcNow.Add(StartupInterruptionGracePeriod);
+            }
             _interruptionDetector.EnableDetection();
-
-            // Turn on the dimmer
-            await _commandPublisher.TurnOnAsync(ct);
-
-            // Set initial brightness
-            await _commandPublisher.SetBrightnessAsync(Definition.StartBrightnessPercent, ct);
 
             // Execute brightness ramp with progress tracking
             var progress = new Progress<int>(currentBrightness =>
@@ -195,7 +207,7 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
                 Definition.TargetBrightnessPercent,
                 Definition.RampDuration,
                 progress,
-                ct);
+                executionCts.Token);
 
             // Ramp completed successfully
             lock (_stateLock)
@@ -203,14 +215,22 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
                 TryFireCore(AlarmTrigger.Complete, "Brightness ramp completed successfully");
             }
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
-            _logger.LogInformation(
-                "Alarm '{AlarmName}' execution cancelled", Definition.Name);
-
             lock (_stateLock)
             {
-                TryFireCore(AlarmTrigger.Error, "Execution cancelled");
+                if (CurrentState == AlarmState.Interrupted)
+                {
+                    _logger.LogInformation(
+                        "Alarm '{AlarmName}' execution stopped due to manual interruption",
+                        Definition.Name);
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "Alarm '{AlarmName}' execution cancelled", Definition.Name);
+                    TryFireCore(AlarmTrigger.Error, "Execution cancelled");
+                }
             }
         }
         catch (Exception ex)
@@ -231,6 +251,16 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
             interruptionSubscription?.Dispose();
             _interruptionDetector.DisableDetection();
             _interruptionDetector.ClearExpectedState();
+
+            lock (_stateLock)
+            {
+                _interruptionArmedAtUtc = null;
+
+                if (ReferenceEquals(_activeExecutionCancellation, executionCts))
+                {
+                    _activeExecutionCancellation = null;
+                }
+            }
         }
     }
 
@@ -242,8 +272,17 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
 
         lock (_stateLock)
         {
+            if (_interruptionArmedAtUtc.HasValue && DateTime.UtcNow < _interruptionArmedAtUtc.Value)
+            {
+                _logger.LogInformation(
+                    "Ignoring interruption during startup grace window for alarm '{AlarmName}': {Reason} - {Message}",
+                    Definition.Name, interruption.Reason, interruption.Message);
+                return;
+            }
+
             TryFireCore(AlarmTrigger.ManualOverride,
                 $"{interruption.Reason}: {interruption.Message}");
+            _activeExecutionCancellation?.Cancel();
         }
     }
 
