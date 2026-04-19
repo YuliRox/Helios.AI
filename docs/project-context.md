@@ -1,6 +1,6 @@
 # Project Context
 
-Last updated: 2026-02-15
+Last updated: 2026-04-19
 
 ## Concise Summary
 
@@ -40,11 +40,13 @@ Boot path at runtime:
 - Alarm CRUD endpoints in `AlarmsController` using weekly schedule fields (`daysOfWeek` + `time`) plus `rampMode`.
 - Ramp profile CRUD endpoints in `RampsController` (`/api/ramps`) backed by `ramp_profiles`.
 - Alarm schedules reference ramp profiles by FK (`RampProfileId`) instead of storing brightness/duration directly.
-- `rampMode` resolves to the matching ramp profile row; startup ensures a `default` profile exists (20% -> 100% over 1800s).
+- `rampMode` resolves to the matching ramp profile row; startup ensures a `default` profile exists (20% -> 100% over 1800s, plus 900s at full brightness).
+- Ramp profiles include `FullBrightnessDurationSeconds` (default 900s / 15 minutes).
 - Alarm timezone is global via app settings, not part of alarm payload.
 - Alarm schedule persistence with EF Core migrations.
 - Hangfire recurring-job sync from database.
 - Alarm state machine with transition table and execution pipeline.
+- On non-interrupted completion, alarm execution now holds at target brightness for the configured full-brightness duration, then resets brightness to start level and powers the dimmer off.
 - MQTT connection manager with reconnect loop and queued commands.
 - Dimmer state monitor, command publisher, and interruption detector.
 - Integration tests for alarm API, Hangfire scheduling, and MQTT components.

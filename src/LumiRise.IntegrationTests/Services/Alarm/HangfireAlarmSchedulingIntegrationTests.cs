@@ -39,7 +39,8 @@ public class HangfireAlarmSchedulingIntegrationTests(ITestOutputHelper testOutpu
             Mode = "test-ramp",
             StartBrightnessPercent = 15,
             TargetBrightnessPercent = 100,
-            RampDurationSeconds = 900
+            RampDurationSeconds = 900,
+            FullBrightnessDurationSeconds = 900
         });
 
         await SeedAlarmAsync(provider, new AlarmScheduleEntity

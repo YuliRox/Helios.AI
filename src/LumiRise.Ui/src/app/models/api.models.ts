@@ -42,6 +42,7 @@ export interface RampResponse {
   startBrightnessPercent: number;
   targetBrightnessPercent: number;
   rampDurationSeconds: number;
+  fullBrightnessDurationSeconds: number;
   createdAtUtc: string;
   updatedAtUtc: string;
 }

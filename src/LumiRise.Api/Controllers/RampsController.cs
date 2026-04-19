@@ -62,6 +62,7 @@ public sealed class RampsController(LumiRiseDbContext dbContext) : ControllerBas
             StartBrightnessPercent = request.StartBrightnessPercent,
             TargetBrightnessPercent = request.TargetBrightnessPercent,
             RampDurationSeconds = request.RampDurationSeconds,
+            FullBrightnessDurationSeconds = request.FullBrightnessDurationSeconds,
             CreatedAtUtc = utcNow,
             UpdatedAtUtc = utcNow
         };
@@ -108,6 +109,7 @@ public sealed class RampsController(LumiRiseDbContext dbContext) : ControllerBas
         entity.StartBrightnessPercent = request.StartBrightnessPercent;
         entity.TargetBrightnessPercent = request.TargetBrightnessPercent;
         entity.RampDurationSeconds = request.RampDurationSeconds;
+        entity.FullBrightnessDurationSeconds = request.FullBrightnessDurationSeconds;
         entity.UpdatedAtUtc = DateTime.UtcNow;
 
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -173,6 +175,7 @@ public sealed class RampsController(LumiRiseDbContext dbContext) : ControllerBas
         StartBrightnessPercent = entity.StartBrightnessPercent,
         TargetBrightnessPercent = entity.TargetBrightnessPercent,
         RampDurationSeconds = entity.RampDurationSeconds,
+        FullBrightnessDurationSeconds = entity.FullBrightnessDurationSeconds,
         CreatedAtUtc = entity.CreatedAtUtc,
         UpdatedAtUtc = entity.UpdatedAtUtc
     };

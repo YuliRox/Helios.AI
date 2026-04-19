@@ -24,12 +24,16 @@ public sealed class LumiRiseDbContext(DbContextOptions<LumiRiseDbContext> option
                 tableBuilder.HasCheckConstraint(
                     "CK_ramp_profiles_target_brightness_range",
                     "\"TargetBrightnessPercent\" >= 0 AND \"TargetBrightnessPercent\" <= 100");
+                tableBuilder.HasCheckConstraint(
+                    "CK_ramp_profiles_full_brightness_duration_non_negative",
+                    "\"FullBrightnessDurationSeconds\" >= 0");
             });
         rampProfile.HasKey(x => x.Id);
         rampProfile.Property(x => x.Mode).HasMaxLength(100).IsRequired();
         rampProfile.Property(x => x.StartBrightnessPercent).IsRequired();
         rampProfile.Property(x => x.TargetBrightnessPercent).IsRequired();
         rampProfile.Property(x => x.RampDurationSeconds).IsRequired();
+        rampProfile.Property(x => x.FullBrightnessDurationSeconds).IsRequired();
         rampProfile.Property(x => x.CreatedAtUtc).IsRequired();
         rampProfile.Property(x => x.UpdatedAtUtc).IsRequired();
         rampProfile.HasIndex(x => x.Mode).IsUnique();

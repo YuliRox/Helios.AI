@@ -64,6 +64,7 @@ public sealed class ApiAlbaHostFixture()
             StartBrightnessPercent = RampProfileEntity.DefaultStartBrightnessPercent,
             TargetBrightnessPercent = RampProfileEntity.DefaultTargetBrightnessPercent,
             RampDurationSeconds = RampProfileEntity.DefaultRampDurationSeconds,
+            FullBrightnessDurationSeconds = RampProfileEntity.DefaultFullBrightnessDurationSeconds,
             CreatedAtUtc = utcNow,
             UpdatedAtUtc = utcNow
         });

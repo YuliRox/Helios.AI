@@ -96,6 +96,7 @@ static async Task EnsureDefaultRampProfileAsync(LumiRiseDbContext dbContext)
         StartBrightnessPercent = RampProfileEntity.DefaultStartBrightnessPercent,
         TargetBrightnessPercent = RampProfileEntity.DefaultTargetBrightnessPercent,
         RampDurationSeconds = RampProfileEntity.DefaultRampDurationSeconds,
+        FullBrightnessDurationSeconds = RampProfileEntity.DefaultFullBrightnessDurationSeconds,
         CreatedAtUtc = DateTime.UtcNow,
         UpdatedAtUtc = DateTime.UtcNow
     });

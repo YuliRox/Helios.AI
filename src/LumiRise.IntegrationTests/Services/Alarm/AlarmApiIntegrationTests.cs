@@ -39,6 +39,7 @@ public class AlarmApiIntegrationTests(ApiAlbaHostFixture fixture)
         created.RampProfile.StartBrightnessPercent.Should().Be(20);
         created.RampProfile.TargetBrightnessPercent.Should().Be(100);
         created.RampProfile.RampDurationSeconds.Should().Be(1800);
+        created.RampProfile.FullBrightnessDurationSeconds.Should().Be(900);
 
         await fixture.Host.Scenario(api =>
         {
@@ -74,6 +75,7 @@ public class AlarmApiIntegrationTests(ApiAlbaHostFixture fixture)
         updated.RampProfile.StartBrightnessPercent.Should().Be(20);
         updated.RampProfile.TargetBrightnessPercent.Should().Be(100);
         updated.RampProfile.RampDurationSeconds.Should().Be(1800);
+        updated.RampProfile.FullBrightnessDurationSeconds.Should().Be(900);
 
         await fixture.Host.Scenario(api =>
         {

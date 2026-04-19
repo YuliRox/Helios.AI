@@ -62,6 +62,7 @@ public class AlarmExecutionInterruptionIntegrationTests : ContainerTest<Mosquitt
                 StartBrightnessPercent = 20,
                 TargetBrightnessPercent = 100,
                 RampDuration = TimeSpan.FromSeconds(30),
+                FullBrightnessDuration = TimeSpan.Zero,
                 TimeZoneId = "UTC",
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow

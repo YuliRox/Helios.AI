@@ -12,6 +12,8 @@ public sealed class RampResponse
 
     public int RampDurationSeconds { get; init; }
 
+    public int FullBrightnessDurationSeconds { get; init; }
+
     public DateTime CreatedAtUtc { get; init; }
 
     public DateTime UpdatedAtUtc { get; init; }

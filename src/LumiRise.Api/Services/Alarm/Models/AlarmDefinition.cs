@@ -58,6 +58,9 @@ public class AlarmDefinition
     private static readonly TimeSpan MinRampDuration = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan MaxRampDuration = TimeSpan.FromDays(1);
     private TimeSpan _rampDuration = TimeSpan.FromMinutes(30);
+    private static readonly TimeSpan MinFullBrightnessDuration = TimeSpan.Zero;
+    private static readonly TimeSpan MaxFullBrightnessDuration = TimeSpan.FromDays(1);
+    private TimeSpan _fullBrightnessDuration = TimeSpan.FromMinutes(15);
 
     /// <summary>
     /// Duration of the brightness ramp (default: 30 minutes).
@@ -67,6 +70,16 @@ public class AlarmDefinition
     {
         get => _rampDuration;
         set => _rampDuration = value.Clamp(MinRampDuration, MaxRampDuration);
+    }
+
+    /// <summary>
+    /// Duration to keep the light at target brightness after ramp completion.
+    /// Clamped to 0 – 1 day.
+    /// </summary>
+    public TimeSpan FullBrightnessDuration
+    {
+        get => _fullBrightnessDuration;
+        set => _fullBrightnessDuration = value.Clamp(MinFullBrightnessDuration, MaxFullBrightnessDuration);
     }
 
     /// <summary>

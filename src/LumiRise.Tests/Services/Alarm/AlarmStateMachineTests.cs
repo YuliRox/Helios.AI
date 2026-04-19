@@ -20,7 +20,8 @@ public class AlarmStateMachineTests : IDisposable
         Name = "Test Alarm",
         StartBrightnessPercent = 20,
         TargetBrightnessPercent = 100,
-        RampDuration = TimeSpan.FromMilliseconds(50)
+        RampDuration = TimeSpan.FromMilliseconds(50),
+        FullBrightnessDuration = TimeSpan.Zero
     };
 
     private readonly AlarmStateMachine _sut;
@@ -182,7 +183,8 @@ public class AlarmStateMachineTests : IDisposable
 
         _sut.CurrentState.Should().Be(AlarmState.Completed);
         _publisher.Verify(p => p.TurnOnAsync(It.IsAny<CancellationToken>()), Times.Once);
-        _publisher.Verify(p => p.SetBrightnessAsync(20, It.IsAny<CancellationToken>()), Times.Once);
+        _publisher.Verify(p => p.SetBrightnessAsync(20, It.IsAny<CancellationToken>()), Times.Exactly(2));
+        _publisher.Verify(p => p.TurnOffAsync(It.IsAny<CancellationToken>()), Times.Once);
         _publisher.Verify(p => p.RampBrightnessAsync(
             20, 100, _definition.RampDuration,
             It.IsAny<IProgress<int>?>(), It.IsAny<CancellationToken>()), Times.Once);
@@ -197,8 +199,8 @@ public class AlarmStateMachineTests : IDisposable
 
         var seq = new MockSequence();
         _detector.Verify(d => d.EnableDetection(), Times.Once);
-        _detector.Verify(d => d.DisableDetection(), Times.Once);
-        _detector.Verify(d => d.ClearExpectedState(), Times.Once);
+        _detector.Verify(d => d.DisableDetection(), Times.Exactly(2));
+        _detector.Verify(d => d.ClearExpectedState(), Times.Exactly(2));
     }
 
     [Fact]

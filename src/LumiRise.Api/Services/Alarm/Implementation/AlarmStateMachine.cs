@@ -209,6 +209,27 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
                 progress,
                 executionCts.Token);
 
+            _interruptionDetector.SetExpectedState(new DimmerState
+            {
+                IsOn = true,
+                BrightnessPercent = Definition.TargetBrightnessPercent
+            });
+
+            if (Definition.FullBrightnessDuration > TimeSpan.Zero)
+            {
+                _logger.LogInformation(
+                    "Alarm '{AlarmName}' reached target brightness; holding for {HoldDuration}",
+                    Definition.Name,
+                    Definition.FullBrightnessDuration);
+                await Task.Delay(Definition.FullBrightnessDuration, executionCts.Token);
+            }
+
+            // End-of-cycle shutdown: reset dimmer level for next startup, then power off.
+            _interruptionDetector.DisableDetection();
+            _interruptionDetector.ClearExpectedState();
+            await _commandPublisher.SetBrightnessAsync(Definition.StartBrightnessPercent, executionCts.Token);
+            await _commandPublisher.TurnOffAsync(executionCts.Token);
+
             // Ramp completed successfully
             lock (_stateLock)
             {

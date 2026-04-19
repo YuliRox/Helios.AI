@@ -20,7 +20,8 @@ public class RampApiIntegrationTests(ApiAlbaHostFixture fixture)
             Mode = "quick",
             StartBrightnessPercent = 40,
             TargetBrightnessPercent = 100,
-            RampDurationSeconds = 600
+            RampDurationSeconds = 600,
+            FullBrightnessDurationSeconds = 120
         };
 
         await fixture.Host.Scenario(api =>
@@ -36,6 +37,7 @@ public class RampApiIntegrationTests(ApiAlbaHostFixture fixture)
         created.StartBrightnessPercent.Should().Be(40);
         created.TargetBrightnessPercent.Should().Be(100);
         created.RampDurationSeconds.Should().Be(600);
+        created.FullBrightnessDurationSeconds.Should().Be(120);
 
         await fixture.Host.Scenario(api =>
         {
@@ -48,7 +50,8 @@ public class RampApiIntegrationTests(ApiAlbaHostFixture fixture)
             Mode = "quick-ramp",
             StartBrightnessPercent = 30,
             TargetBrightnessPercent = 90,
-            RampDurationSeconds = 300
+            RampDurationSeconds = 300,
+            FullBrightnessDurationSeconds = 30
         };
 
         await fixture.Host.Scenario(api =>
@@ -65,6 +68,7 @@ public class RampApiIntegrationTests(ApiAlbaHostFixture fixture)
         updated.StartBrightnessPercent.Should().Be(30);
         updated.TargetBrightnessPercent.Should().Be(90);
         updated.RampDurationSeconds.Should().Be(300);
+        updated.FullBrightnessDurationSeconds.Should().Be(30);
 
         await fixture.Host.Scenario(api =>
         {

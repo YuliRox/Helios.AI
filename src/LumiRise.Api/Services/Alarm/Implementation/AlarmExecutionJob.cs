@@ -75,6 +75,7 @@ public sealed class AlarmExecutionJob
             StartBrightnessPercent = alarm.RampProfile.StartBrightnessPercent,
             TargetBrightnessPercent = alarm.RampProfile.TargetBrightnessPercent,
             RampDuration = TimeSpan.FromSeconds(alarm.RampProfile.RampDurationSeconds),
+            FullBrightnessDuration = TimeSpan.FromSeconds(alarm.RampProfile.FullBrightnessDurationSeconds),
             TimeZoneId = _alarmSettings.TimeZoneId,
             UpdatedAt = alarm.UpdatedAtUtc,
             CreatedAt = alarm.CreatedAtUtc

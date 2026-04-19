@@ -17,4 +17,7 @@ public sealed class RampUpsertRequest
 
     [Range(1, int.MaxValue)]
     public int RampDurationSeconds { get; init; } = RampProfileEntity.DefaultRampDurationSeconds;
+
+    [Range(0, int.MaxValue)]
+    public int FullBrightnessDurationSeconds { get; init; } = RampProfileEntity.DefaultFullBrightnessDurationSeconds;
 }
