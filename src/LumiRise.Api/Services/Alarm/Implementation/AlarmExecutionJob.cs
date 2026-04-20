@@ -11,6 +11,8 @@ namespace LumiRise.Api.Services.Alarm.Implementation;
 
 public sealed class AlarmExecutionJob
 {
+    private static readonly SemaphoreSlim ExecutionMutex = new(1, 1);
+
     private readonly LumiRiseDbContext _dbContext;
     private readonly IAlarmStateMachineFactory _stateMachineFactory;
     private readonly IMqttConnectionManager _mqttConnectionManager;
@@ -42,78 +44,95 @@ public sealed class AlarmExecutionJob
     }
 
     [DisableConcurrentExecution(timeoutInSeconds: 3600)]
+    [AutomaticRetry(Attempts = 0)]
     public async Task ExecuteAsync(Guid alarmId)
     {
-        var alarm = await _dbContext.AlarmSchedules
-            .AsNoTracking()
-            .Include(x => x.RampProfile)
-            .FirstOrDefaultAsync(x => x.Id == alarmId);
-
-        if (alarm is null)
-        {
-            _logger.LogWarning("Skipping alarm execution for {AlarmId}: alarm not found", alarmId);
-            return;
-        }
-
-        if (!alarm.Enabled)
-        {
-            _logger.LogInformation("Skipping alarm execution for {AlarmId}: alarm is disabled", alarmId);
-            return;
-        }
-
-        if (alarm.RampProfile is null)
-        {
-            _logger.LogWarning("Skipping alarm execution for {AlarmId}: ramp profile not found", alarmId);
-            return;
-        }
-
-        var definition = new AlarmDefinition
-        {
-            Id = alarm.Id,
-            Name = alarm.Name,
-            Enabled = alarm.Enabled,
-            StartBrightnessPercent = alarm.RampProfile.StartBrightnessPercent,
-            TargetBrightnessPercent = alarm.RampProfile.TargetBrightnessPercent,
-            RampDuration = TimeSpan.FromSeconds(alarm.RampProfile.RampDurationSeconds),
-            FullBrightnessDuration = TimeSpan.FromSeconds(alarm.RampProfile.FullBrightnessDurationSeconds),
-            TimeZoneId = _alarmSettings.TimeZoneId,
-            UpdatedAt = alarm.UpdatedAtUtc,
-            CreatedAt = alarm.CreatedAtUtc
-        };
-
-        _logger.LogInformation("Starting Hangfire alarm job for {AlarmId} ({AlarmName})", alarm.Id, alarm.Name);
+        await ExecutionMutex.WaitAsync(CancellationToken.None);
 
         try
         {
-            await _mqttConnectionManager.ConnectAsync(CancellationToken.None);
-            await _stateMonitor.StartMonitoringAsync(CancellationToken.None);
+            var alarm = await _dbContext.AlarmSchedules
+                .AsNoTracking()
+                .Include(x => x.RampProfile)
+                .FirstOrDefaultAsync(x => x.Id == alarmId);
 
-            var machine = _stateMachineFactory.Create(definition);
-            using var _ = machine as IDisposable;
+            if (alarm is null)
+            {
+                _logger.LogWarning("Skipping alarm execution for {AlarmId}: alarm not found", alarmId);
+                return;
+            }
 
-            machine.Fire(AlarmTrigger.SchedulerTrigger, "Triggered by Hangfire recurring job");
-            machine.Fire(AlarmTrigger.Start, "Starting alarm execution");
-            await machine.ExecuteAsync(CancellationToken.None);
+            if (!alarm.Enabled)
+            {
+                _logger.LogInformation("Skipping alarm execution for {AlarmId}: alarm is disabled", alarmId);
+                return;
+            }
+
+            if (alarm.RampProfile is null)
+            {
+                _logger.LogWarning("Skipping alarm execution for {AlarmId}: ramp profile not found", alarmId);
+                return;
+            }
+
+            var definition = new AlarmDefinition
+            {
+                Id = alarm.Id,
+                Name = alarm.Name,
+                Enabled = alarm.Enabled,
+                StartBrightnessPercent = alarm.RampProfile.StartBrightnessPercent,
+                TargetBrightnessPercent = alarm.RampProfile.TargetBrightnessPercent,
+                RampDuration = TimeSpan.FromSeconds(alarm.RampProfile.RampDurationSeconds),
+                FullBrightnessDuration = TimeSpan.FromSeconds(alarm.RampProfile.FullBrightnessDurationSeconds),
+                TimeZoneId = _alarmSettings.TimeZoneId,
+                UpdatedAt = alarm.UpdatedAtUtc,
+                CreatedAt = alarm.CreatedAtUtc
+            };
+
+            _logger.LogInformation(
+                "Starting Hangfire alarm job for {AlarmId} ({AlarmName}) with ramp {Start}% -> {Target}% in {RampDuration}, hold {HoldDuration}",
+                alarm.Id,
+                alarm.Name,
+                definition.StartBrightnessPercent,
+                definition.TargetBrightnessPercent,
+                definition.RampDuration,
+                definition.FullBrightnessDuration);
+
+            try
+            {
+                await _mqttConnectionManager.ConnectAsync(CancellationToken.None);
+                await _stateMonitor.StartMonitoringAsync(CancellationToken.None);
+
+                var machine = _stateMachineFactory.Create(definition);
+                using var _ = machine as IDisposable;
+
+                machine.Fire(AlarmTrigger.SchedulerTrigger, "Triggered by Hangfire recurring job");
+                machine.Fire(AlarmTrigger.Start, "Starting alarm execution");
+                await machine.ExecuteAsync(CancellationToken.None);
+            }
+            finally
+            {
+                try
+                {
+                    await _stateMonitor.StopMonitoringAsync(CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to stop dimmer monitoring after alarm job {AlarmId}", alarmId);
+                }
+
+                try
+                {
+                    await _mqttConnectionManager.DisconnectAsync(CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to disconnect MQTT after alarm job {AlarmId}", alarmId);
+                }
+            }
         }
         finally
         {
-            try
-            {
-                await _stateMonitor.StopMonitoringAsync(CancellationToken.None);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to stop dimmer monitoring after alarm job {AlarmId}", alarm.Id);
-            }
-
-            try
-            {
-                await _mqttConnectionManager.DisconnectAsync(CancellationToken.None);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to disconnect MQTT after alarm job {AlarmId}", alarm.Id);
-            }
+            ExecutionMutex.Release();
         }
     }
 }

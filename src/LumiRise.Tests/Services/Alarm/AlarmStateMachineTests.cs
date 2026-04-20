@@ -248,7 +248,8 @@ public class AlarmStateMachineTests : IDisposable
             });
 
         TransitionTo(AlarmState.Running);
-        await _sut.ExecuteAsync(cts.Token);
+        Func<Task> act = () => _sut.ExecuteAsync(cts.Token);
+        await act.Should().ThrowAsync<OperationCanceledException>();
 
         _sut.CurrentState.Should().Be(AlarmState.Failed);
     }
@@ -262,7 +263,10 @@ public class AlarmStateMachineTests : IDisposable
 
         TransitionTo(AlarmState.Running);
         using (_logger.AllowErrors())
-            await _sut.ExecuteAsync(TestContext.Current.CancellationToken);
+        {
+            Func<Task> act = () => _sut.ExecuteAsync(TestContext.Current.CancellationToken);
+            await act.Should().ThrowAsync<InvalidOperationException>();
+        }
 
         _sut.CurrentState.Should().Be(AlarmState.Failed);
     }
@@ -339,7 +343,10 @@ public class AlarmStateMachineTests : IDisposable
 
         TransitionTo(AlarmState.Running);
         using (_logger.AllowErrors())
-            await _sut.ExecuteAsync(TestContext.Current.CancellationToken);
+        {
+            Func<Task> act = () => _sut.ExecuteAsync(TestContext.Current.CancellationToken);
+            await act.Should().ThrowAsync<Exception>().WithMessage("boom");
+        }
 
         _detector.Verify(d => d.DisableDetection(), Times.Once);
         _detector.Verify(d => d.ClearExpectedState(), Times.Once);

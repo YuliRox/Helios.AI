@@ -238,6 +238,8 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
         }
         catch (OperationCanceledException)
         {
+            var shouldRethrow = false;
+
             lock (_stateLock)
             {
                 if (CurrentState == AlarmState.Interrupted)
@@ -251,7 +253,13 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
                     _logger.LogInformation(
                         "Alarm '{AlarmName}' execution cancelled", Definition.Name);
                     TryFireCore(AlarmTrigger.Error, "Execution cancelled");
+                    shouldRethrow = true;
                 }
+            }
+
+            if (shouldRethrow)
+            {
+                throw;
             }
         }
         catch (Exception ex)
@@ -264,6 +272,8 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
             {
                 TryFireCore(AlarmTrigger.Error, ex.Message);
             }
+
+            throw;
         }
         finally
         {

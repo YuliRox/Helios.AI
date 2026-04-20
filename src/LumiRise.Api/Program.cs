@@ -33,8 +33,13 @@ builder.Services.AddDbContext<LumiRiseDbContext>(options =>
 builder.Services.AddHangfire(configuration => configuration
     .UseSimpleAssemblyNameTypeSerializer()
     .UseRecommendedSerializerSettings()
-    .UsePostgreSqlStorage(storageOptions =>
-        storageOptions.UseNpgsqlConnection(postgresConnectionString)));
+    .UsePostgreSqlStorage(
+        bootstrapperOptions => bootstrapperOptions.UseNpgsqlConnection(postgresConnectionString),
+        new PostgreSqlStorageOptions
+        {
+            InvisibilityTimeout = TimeSpan.FromMinutes(60),
+            UseSlidingInvisibilityTimeout = true
+        }));
 builder.Services.AddHangfireServer();
 
 // Register MQTT services
