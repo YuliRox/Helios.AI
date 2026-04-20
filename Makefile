@@ -23,6 +23,7 @@ help:
 	@echo "  make release-api     Build+push api images for amd64 and arm64"
 	@echo "  make release-ui      Build+push ui images for amd64 and arm64"
 	@echo "  make release-manifest Create/refresh multi-arch manifest tags"
+	@echo "  make release-tag     Create git tag v<APP_VERSION> on current commit"
 
 .PHONY: local-build
 local-build:
@@ -45,7 +46,11 @@ ensure-builder:
 	docker buildx inspect --bootstrap >/dev/null
 
 .PHONY: release
-release: ensure-builder release-api release-ui release-manifest
+release: ensure-builder
+	$(MAKE) release-api
+	$(MAKE) release-ui
+	$(MAKE) release-manifest
+	$(MAKE) release-tag
 
 .PHONY: release-api
 release-api:
@@ -61,3 +66,11 @@ release-ui:
 release-manifest:
 	docker buildx imagetools create -t $(API_IMAGE):$(APP_VERSION) $(API_IMAGE):$(APP_VERSION)-amd64 $(API_IMAGE):$(APP_VERSION)-arm64
 	docker buildx imagetools create -t $(UI_IMAGE):$(APP_VERSION) $(UI_IMAGE):$(APP_VERSION)-amd64 $(UI_IMAGE):$(APP_VERSION)-arm64
+
+.PHONY: release-tag
+release-tag:
+	@if git rev-parse -q --verify refs/tags/v$(APP_VERSION) >/dev/null; then \
+		echo "Tag v$(APP_VERSION) already exists"; \
+		exit 1; \
+	fi
+	git tag -a v$(APP_VERSION) -m "Release v$(APP_VERSION)"
