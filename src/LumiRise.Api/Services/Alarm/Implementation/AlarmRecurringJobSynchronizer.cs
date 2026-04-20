@@ -1,4 +1,5 @@
 using Hangfire;
+using Hangfire.Server;
 using Hangfire.Storage;
 using LumiRise.Api.Configuration;
 using LumiRise.Api.Data;
@@ -61,7 +62,7 @@ public sealed class AlarmRecurringJobSynchronizer : IAlarmRecurringJobSynchroniz
             {
                 _recurringJobManager.AddOrUpdate<AlarmExecutionJob>(
                     recurringJobId,
-                    job => job.ExecuteAsync(alarm.Id),
+                    job => job.ExecuteAsync(alarm.Id, null),
                     alarm.CronExpression,
                     new RecurringJobOptions
                     {

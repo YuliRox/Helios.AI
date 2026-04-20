@@ -1,4 +1,6 @@
 using Hangfire;
+using Hangfire.Console;
+using Hangfire.Server;
 using LumiRise.Api.Configuration;
 using LumiRise.Api.Data;
 using LumiRise.Api.Services.Alarm.Interfaces;
@@ -45,7 +47,7 @@ public sealed class AlarmExecutionJob
 
     [DisableConcurrentExecution(timeoutInSeconds: 3600)]
     [AutomaticRetry(Attempts = 0)]
-    public async Task ExecuteAsync(Guid alarmId)
+    public async Task ExecuteAsync(Guid alarmId, PerformContext? context = null)
     {
         await ExecutionMutex.WaitAsync(CancellationToken.None);
 
@@ -96,43 +98,119 @@ public sealed class AlarmExecutionJob
                 definition.TargetBrightnessPercent,
                 definition.RampDuration,
                 definition.FullBrightnessDuration);
+            WriteInfo(
+                context,
+                "Starting alarm '{0}' ({1}): {2}% -> {3}% in {4}, hold {5}.",
+                alarm.Name,
+                alarm.Id,
+                definition.StartBrightnessPercent,
+                definition.TargetBrightnessPercent,
+                definition.RampDuration,
+                definition.FullBrightnessDuration);
 
             try
             {
                 await _mqttConnectionManager.ConnectAsync(CancellationToken.None);
                 await _stateMonitor.StartMonitoringAsync(CancellationToken.None);
+                WriteInfo(context, "Connected to MQTT and started state monitoring.");
 
                 var machine = _stateMachineFactory.Create(definition);
-                using var _ = machine as IDisposable;
+                var machineDisposable = machine as IDisposable;
+                void OnBrightnessChanged(int brightnessPercent) =>
+                    WriteInfo(context, "Set brightness to {0}%", brightnessPercent);
 
-                machine.Fire(AlarmTrigger.SchedulerTrigger, "Triggered by Hangfire recurring job");
-                machine.Fire(AlarmTrigger.Start, "Starting alarm execution");
-                await machine.ExecuteAsync(CancellationToken.None);
+                machine.BrightnessChanged += OnBrightnessChanged;
+
+                try
+                {
+                    machine.Fire(AlarmTrigger.SchedulerTrigger, "Triggered by Hangfire recurring job");
+                    machine.Fire(AlarmTrigger.Start, "Starting alarm execution");
+                    await machine.ExecuteAsync(CancellationToken.None);
+
+                    if (machine.CurrentState == AlarmState.Completed)
+                    {
+                        WriteSuccess(context, "Alarm completed successfully.");
+                    }
+                    else if (machine.CurrentState == AlarmState.Interrupted)
+                    {
+                        WriteInfo(context, "Alarm interrupted by manual override.");
+                    }
+                }
+                finally
+                {
+                    machine.BrightnessChanged -= OnBrightnessChanged;
+                    machineDisposable?.Dispose();
+                }
             }
             finally
             {
                 try
                 {
+                    WriteInfo(context, "Stopping dimmer state monitoring...");
                     await _stateMonitor.StopMonitoringAsync(CancellationToken.None);
+                    WriteInfo(context, "Dimmer state monitoring stopped.");
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Failed to stop dimmer monitoring after alarm job {AlarmId}", alarmId);
+                    WriteError(context, "Cleanup error while stopping state monitoring: {0}", ex.Message);
                 }
 
                 try
                 {
+                    WriteInfo(context, "Disconnecting MQTT...");
                     await _mqttConnectionManager.DisconnectAsync(CancellationToken.None);
+                    WriteInfo(context, "MQTT disconnected.");
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Failed to disconnect MQTT after alarm job {AlarmId}", alarmId);
+                    WriteError(context, "Cleanup error while disconnecting MQTT: {0}", ex.Message);
                 }
             }
+        }
+        catch (Exception ex)
+        {
+            WriteError(context, "Alarm failed: {0}", ex.Message);
+            throw;
         }
         finally
         {
             ExecutionMutex.Release();
         }
+    }
+
+    private static void WriteInfo(PerformContext? context, string message, params object[] args)
+    {
+        if (context is null)
+        {
+            return;
+        }
+
+        context.WriteLine(message, args);
+    }
+
+    private static void WriteSuccess(PerformContext? context, string message, params object[] args)
+    {
+        if (context is null)
+        {
+            return;
+        }
+
+        context.SetTextColor(ConsoleTextColor.Green);
+        context.WriteLine(message, args);
+        context.ResetTextColor();
+    }
+
+    private static void WriteError(PerformContext? context, string message, params object[] args)
+    {
+        if (context is null)
+        {
+            return;
+        }
+
+        context.SetTextColor(ConsoleTextColor.Red);
+        context.WriteLine(message, args);
+        context.ResetTextColor();
     }
 }

@@ -7,6 +7,7 @@ using LumiRise.Api.Services.Alarm.Interfaces;
 using LumiRise.Api.Services.Mqtt.Implementation;
 using LumiRise.Api.Services.Mqtt.Interfaces;
 using Hangfire;
+using Hangfire.Console;
 using Hangfire.PostgreSql;
 using Microsoft.EntityFrameworkCore;
 
@@ -33,6 +34,7 @@ builder.Services.AddDbContext<LumiRiseDbContext>(options =>
 builder.Services.AddHangfire(configuration => configuration
     .UseSimpleAssemblyNameTypeSerializer()
     .UseRecommendedSerializerSettings()
+    .UseConsole()
     .UsePostgreSqlStorage(
         bootstrapperOptions => bootstrapperOptions.UseNpgsqlConnection(postgresConnectionString),
         new PostgreSqlStorageOptions

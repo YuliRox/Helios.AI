@@ -25,6 +25,11 @@ public interface IAlarmStateMachine
     IObservable<AlarmStateTransition> StateTransitions { get; }
 
     /// <summary>
+    /// Raised when alarm execution sets a concrete brightness percentage.
+    /// </summary>
+    event Action<int>? BrightnessChanged;
+
+    /// <summary>
     /// Fires a trigger to transition the alarm state.
     /// </summary>
     /// <param name="trigger">The trigger to fire.</param>

@@ -58,6 +58,8 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
 
     public IObservable<AlarmStateTransition> StateTransitions => _stateTransitions.AsObservable();
 
+    public event Action<int>? BrightnessChanged;
+
     public AlarmState Fire(AlarmTrigger trigger, string? message = null)
     {
         lock (_stateLock)
@@ -174,6 +176,7 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
 
             // Set initial brightness
             await _commandPublisher.SetBrightnessAsync(Definition.StartBrightnessPercent, executionCts.Token);
+            PublishBrightnessChanged(Definition.StartBrightnessPercent);
 
             // Enable interruption detection only after bootstrap commands complete.
             // Some dimmers briefly report transient values during ON + initial brightness setup.
@@ -200,6 +203,7 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
                 _logger.LogDebug(
                     "Alarm '{AlarmName}' ramp progress: {Brightness}%",
                     Definition.Name, currentBrightness);
+                PublishBrightnessChanged(currentBrightness);
             });
 
             await _commandPublisher.RampBrightnessAsync(
@@ -228,6 +232,7 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
             _interruptionDetector.DisableDetection();
             _interruptionDetector.ClearExpectedState();
             await _commandPublisher.SetBrightnessAsync(Definition.StartBrightnessPercent, executionCts.Token);
+            PublishBrightnessChanged(Definition.StartBrightnessPercent);
             await _commandPublisher.TurnOffAsync(executionCts.Token);
 
             // Ramp completed successfully
@@ -291,6 +296,31 @@ public class AlarmStateMachine : IAlarmStateMachine, IDisposable
                 {
                     _activeExecutionCancellation = null;
                 }
+            }
+        }
+    }
+
+    private void PublishBrightnessChanged(int brightnessPercent)
+    {
+        var handlers = BrightnessChanged;
+        if (handlers is null)
+        {
+            return;
+        }
+
+        foreach (var handler in handlers.GetInvocationList().Cast<Action<int>>())
+        {
+            try
+            {
+                handler(brightnessPercent);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "BrightnessChanged subscriber failed for alarm '{AlarmName}' ({AlarmId})",
+                    Definition.Name,
+                    Definition.Id);
             }
         }
     }
